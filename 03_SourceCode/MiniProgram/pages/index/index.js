@@ -22,9 +22,14 @@ const TONES = {
   }
 };
 
+const DEMO_SOURCE_ASPECT = 360 / 240;
+const WEB_DEMO_STRETCH = 1.04;
+const DEMO_OPENING_SCALE = 0.7;
+const VIDEO_PROCESSOR_API = "http://127.0.0.1:8787";
+
 Page({
   data: {
-    cols: 80,
+    cols: 50,
     scale: 100,
     contrast: 118,
     mode: "ascii",
@@ -34,8 +39,11 @@ Page({
     dither: true,
     glow: true,
     power: true,
+    saving: false,
+    processingVideo: false,
+    processedVideoSrc: "",
     sourceLabel: "SIMULATED SIGNAL",
-    modeLabel: "ASCII / 80 COL",
+    modeLabel: "ASCII / 50 COL",
     scaleLabel: "1.00",
     contrastLabel: "1.18",
     vents: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
@@ -62,6 +70,7 @@ Page({
     this.dpr = Math.max(1, Math.min(pixelRatio, 2));
     this.sourceKind = "demo";
     this.sourceImage = null;
+    this.processedVideoPath = "";
     this.frame = 0;
     this.initCanvases();
   },
@@ -133,6 +142,7 @@ Page({
       success: (res) => {
         const file = res.tempFiles && res.tempFiles[0];
         if (file && file.tempFilePath) {
+          this.clearProcessedVideo();
           this.loadCanvasImage(file.tempFilePath, "IMAGE SIGNAL", "image");
         }
       }
@@ -147,15 +157,21 @@ Page({
       maxDuration: 60,
       success: (res) => {
         const file = res.tempFiles && res.tempFiles[0];
-        if (!file) return;
-        const thumbPath = file.thumbTempFilePath || file.tempFilePath;
-        if (thumbPath && file.thumbTempFilePath) {
-          this.loadCanvasImage(thumbPath, "VIDEO THUMB", "video");
-          return;
+        if (!file || !file.tempFilePath) return;
+
+        this.clearProcessedVideo();
+        this.sourceKind = "video-processing";
+        this.setData({
+          processingVideo: true,
+          sourceLabel: "PROCESSING VIDEO"
+        });
+        if (file.thumbTempFilePath) {
+          this.loadCanvasImage(file.thumbTempFilePath, "PROCESSING VIDEO", "video-processing");
+        } else {
+          this.sourceImage = null;
+          this.renderScreen();
         }
-        this.sourceKind = "video";
-        this.sourceImage = null;
-        this.setData({ sourceLabel: "VIDEO SIMULATION" });
+        this.uploadVideoForProcessing(file.tempFilePath);
       }
     });
   },
@@ -173,6 +189,85 @@ Page({
       wx.showToast({ title: "媒体载入失败", icon: "none" });
     };
     image.src = path;
+  },
+
+  clearProcessedVideo() {
+    this.processedVideoPath = "";
+    if (this.data.processedVideoSrc || this.data.processingVideo) {
+      this.setData({
+        processedVideoSrc: "",
+        processingVideo: false
+      });
+    }
+  },
+
+  uploadVideoForProcessing(filePath) {
+    wx.showLoading({ title: "处理中", mask: true });
+    wx.uploadFile({
+      url: `${VIDEO_PROCESSOR_API}/api/process-video`,
+      filePath,
+      name: "video",
+      formData: this.videoProcessParams(),
+      success: (res) => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          this.handleVideoProcessError();
+          return;
+        }
+
+        let payload = null;
+        try {
+          payload = JSON.parse(res.data || "{}");
+        } catch (error) {
+          this.handleVideoProcessError();
+          return;
+        }
+
+        if (!payload.videoUrl) {
+          this.handleVideoProcessError();
+          return;
+        }
+
+        this.processedVideoPath = payload.videoUrl;
+        this.sourceKind = "processed-video";
+        this.setData({
+          processedVideoSrc: payload.videoUrl,
+          processingVideo: false,
+          sourceLabel: "PROCESSED VIDEO"
+        });
+        wx.showToast({ title: "视频处理完成", icon: "success" });
+      },
+      fail: () => this.handleVideoProcessError(),
+      complete: () => wx.hideLoading()
+    });
+  },
+
+  videoProcessParams() {
+    return {
+      cols: String(this.data.cols),
+      scale: (this.data.scale / 100).toFixed(2),
+      contrast: (this.data.contrast / 100).toFixed(2),
+      mode: this.data.mode,
+      charset: this.data.charset,
+      tone: this.data.tone,
+      invert: String(this.data.invert),
+      dither: String(this.data.dither),
+      glow: String(this.data.glow)
+    };
+  },
+
+  handleVideoProcessError() {
+    this.processedVideoPath = "";
+    this.sourceKind = this.sourceImage ? "video-processing" : "demo";
+    this.setData({
+      processingVideo: false,
+      processedVideoSrc: "",
+      sourceLabel: "VIDEO PROCESS FAILED"
+    });
+    wx.showToast({ title: "视频处理失败", icon: "none" });
+  },
+
+  onProcessedVideoError() {
+    wx.showToast({ title: "处理后视频播放失败", icon: "none" });
   },
 
   onColsChanging(event) {
@@ -225,6 +320,127 @@ Page({
     this.setData({ power: !this.data.power });
   },
 
+  saveCurrentOutput() {
+    if (this.data.saving) return;
+    if (this.data.processingVideo) {
+      wx.showToast({ title: "视频处理中", icon: "none" });
+      return;
+    }
+    if (this.processedVideoPath) {
+      this.saveProcessedVideo();
+      return;
+    }
+    if (!this.screenCanvas || !this.screenCtx) {
+      wx.showToast({ title: "屏幕尚未就绪", icon: "none" });
+      return;
+    }
+
+    this.setData({ saving: true });
+    wx.showLoading({ title: "保存中", mask: true });
+    this.renderScreen();
+    setTimeout(() => this.exportScreenImage(), 80);
+  },
+
+  saveProcessedVideo() {
+    this.setData({ saving: true });
+    wx.showLoading({ title: "保存中", mask: true });
+
+    if (/^https?:\/\//i.test(this.processedVideoPath)) {
+      wx.downloadFile({
+        url: this.processedVideoPath,
+        success: (res) => {
+          if (res.statusCode === 200 && res.tempFilePath) {
+            this.saveVideoToAlbum(res.tempFilePath);
+            return;
+          }
+          this.handleSaveError();
+        },
+        fail: () => this.handleSaveError()
+      });
+      return;
+    }
+
+    this.saveVideoToAlbum(this.processedVideoPath);
+  },
+
+  exportScreenImage() {
+    const canvas = this.screenCanvas;
+    wx.canvasToTempFilePath({
+      canvas,
+      x: 0,
+      y: 0,
+      width: canvas.width,
+      height: canvas.height,
+      destWidth: canvas.width,
+      destHeight: canvas.height,
+      fileType: "png",
+      quality: 1,
+      success: (res) => this.saveImageToAlbum(res.tempFilePath),
+      fail: () => this.exportScreenImageById()
+    });
+  },
+
+  exportScreenImageById() {
+    wx.canvasToTempFilePath({
+      canvasId: "screenCanvas",
+      fileType: "png",
+      quality: 1,
+      success: (res) => this.saveImageToAlbum(res.tempFilePath),
+      fail: (error) => this.handleSaveError(error)
+    }, this);
+  },
+
+  saveImageToAlbum(filePath) {
+    wx.saveImageToPhotosAlbum({
+      filePath,
+      success: () => {
+        this.finishSaving();
+        wx.showToast({ title: "已保存图片", icon: "success" });
+      },
+      fail: (error) => this.handleAlbumError(error)
+    });
+  },
+
+  saveVideoToAlbum(filePath) {
+    wx.saveVideoToPhotosAlbum({
+      filePath,
+      success: () => {
+        this.finishSaving();
+        wx.showToast({ title: "已保存视频", icon: "success" });
+      },
+      fail: (error) => this.handleAlbumError(error)
+    });
+  },
+
+  handleAlbumError(error) {
+    const message = (error && error.errMsg) || "";
+    this.finishSaving();
+
+    if (message.includes("auth deny") || message.includes("authorize") || message.includes("permission")) {
+      wx.showModal({
+        title: "需要相册权限",
+        content: "请允许保存到相册后再试一次。",
+        confirmText: "去设置",
+        success: (res) => {
+          if (res.confirm) wx.openSetting();
+        }
+      });
+      return;
+    }
+
+    wx.showToast({ title: "保存失败", icon: "none" });
+  },
+
+  handleSaveError() {
+    this.finishSaving();
+    wx.showToast({ title: "导出失败", icon: "none" });
+  },
+
+  finishSaving() {
+    wx.hideLoading();
+    this.setData({ saving: false });
+  },
+
   renderScreen() {
     if (!this.screenCtx || !this.screenCanvas) return;
 
@@ -233,33 +449,42 @@ Page({
     const height = this.screenCanvas.height;
 
     this.frame += 1;
+    ctx.clearRect(0, 0, width, height);
     ctx.save();
     this.roundedClip(ctx, width, height, Math.min(width, height) * 0.04);
     this.fillScreenBackground(ctx, width, height);
 
     if (this.data.power) {
       const cols = Number(this.data.cols);
-      const rows = Math.max(22, Math.round(cols * (height / width) * 0.52));
-      const sample = this.buildSampleData(cols, rows);
-      const marginX = width * 0.06;
-      const marginY = height * 0.08;
-      const cellW = (width - marginX * 2) / cols;
-      const cellH = (height - marginY * 2) / rows;
+      const rows = Math.max(24, Math.round(cols * (height / width) * 0.52));
+      const metrics = this.fullDisplayMetrics(width, height, cols, rows);
+      const sample = this.buildSampleData(cols, rows, metrics);
 
       ctx.save();
-      ctx.translate(marginX, marginY);
+      ctx.translate(metrics.x, metrics.y);
       if (this.data.mode === "dots") {
-        this.renderDots(ctx, sample, rows, cols, cellW, cellH);
+        this.renderDots(ctx, sample, rows, cols, metrics.cellW, metrics.cellH);
       } else if (this.data.mode === "halftone") {
-        this.renderHalftone(ctx, sample, rows, cols, cellW, cellH);
+        this.renderHalftone(ctx, sample, rows, cols, metrics.cellW, metrics.cellH);
       } else {
-        this.renderAscii(ctx, sample, rows, cols, cellW, cellH);
+        this.renderAscii(ctx, sample, rows, cols, metrics.cellW, metrics.cellH);
       }
       ctx.restore();
       this.drawScreenNoise(ctx, width, height);
     }
 
     ctx.restore();
+  },
+
+  fullDisplayMetrics(width, height, cols, rows) {
+    const marginX = width * 0.06;
+    const marginY = height * 0.08;
+    return {
+      x: marginX,
+      y: marginY,
+      cellW: (width - marginX * 2) / cols,
+      cellH: (height - marginY * 2) / rows
+    };
   },
 
   roundedClip(ctx, width, height, radius) {
@@ -289,11 +514,11 @@ Page({
     ctx.fillRect(0, 0, width, height);
   },
 
-  buildSampleData(cols, rows) {
+  buildSampleData(cols, rows, metrics) {
     if (this.sourceImage) {
       return this.sampleImageData(cols, rows);
     }
-    return this.demoSampleData(cols, rows);
+    return this.demoSampleData(cols, rows, metrics);
   },
 
   sampleImageData(cols, rows) {
@@ -325,7 +550,7 @@ Page({
     }
   },
 
-  demoSampleData(cols, rows) {
+  demoSampleData(cols, rows, metrics) {
     const canvas = this.sampleCanvas;
     const ctx = this.sampleCtx;
     canvas.width = cols;
@@ -336,19 +561,25 @@ Page({
 
     const baseWidth = 360;
     const baseHeight = 240;
-    const scale = this.data.scale / 100;
-    const fitScale = Math.max(cols / baseWidth, rows / baseHeight) * scale;
-    const displayAspect = cols / rows;
-    const sourceAspect = baseWidth / baseHeight;
-    const shapeCorrection = Math.min(2.55, Math.max(1, sourceAspect / displayAspect));
-    const drawWidth = baseWidth * fitScale * shapeCorrection;
-    const drawHeight = baseHeight * fitScale;
+    const scale = (this.data.scale / 100) * (this.sourceKind === "demo" ? DEMO_OPENING_SCALE : 1);
+    const cellStretch = metrics ? metrics.cellH / metrics.cellW : 1.8;
+    const displayAspect = DEMO_SOURCE_ASPECT * cellStretch * WEB_DEMO_STRETCH;
+    const boxWidth = cols * scale * 0.94;
+    const boxHeight = rows * scale * 0.94;
+    let drawWidth = boxWidth;
+    let drawHeight = drawWidth / displayAspect;
+
+    if (drawHeight < boxHeight) {
+      drawHeight = boxHeight;
+      drawWidth = drawHeight * displayAspect;
+    }
+
     const drawX = (cols - drawWidth) / 2;
     const drawY = (rows - drawHeight) / 2;
 
     ctx.save();
     ctx.translate(drawX, drawY);
-    ctx.scale(fitScale * shapeCorrection, fitScale);
+    ctx.scale(drawWidth / baseWidth, drawHeight / baseHeight);
     this.drawWebDemoSource(ctx, this.frame * 90);
     ctx.restore();
 

@@ -8,6 +8,11 @@
     "navigationBarTextStyle": "black",
     "backgroundColor": "#d8d6cd"
   },
+  "permission": {
+    "scope.writePhotosAlbum": {
+      "desc": "用于保存处理后的图像到相册"
+    }
+  },
   "style": "v2",
   "sitemapLocation": "sitemap.json",
   "lazyCodeLoading": "requiredComponents"

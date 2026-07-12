@@ -43,7 +43,25 @@
         <view class="screen-stack">
           <view class="crt-frame tone-{{tone}} {{glow ? 'glow-on' : ''}}">
             <view class="glass-bezel">
-              <canvas id="screenCanvas" class="screen-canvas" type="2d"></canvas>
+              <video
+                wx:if="{{processedVideoSrc}}"
+                id="processedVideo"
+                class="processed-video"
+                src="{{processedVideoSrc}}"
+                autoplay="{{true}}"
+                loop="{{true}}"
+                muted="{{true}}"
+                controls="{{false}}"
+                object-fit="cover"
+                show-center-play-btn="{{false}}"
+                show-play-btn="{{false}}"
+                show-fullscreen-btn="{{false}}"
+                show-mute-btn="{{false}}"
+                show-bottom-progress="{{false}}"
+                enable-progress-gesture="{{false}}"
+                binderror="onProcessedVideoError"
+              ></video>
+              <canvas id="screenCanvas" canvas-id="screenCanvas" class="screen-canvas {{processedVideoSrc ? 'screen-canvas-hidden' : ''}}" type="2d"></canvas>
               <view class="screen-reflection"></view>
               <view class="scanline-layer"></view>
               <view class="phosphor-mask"></view>
@@ -107,6 +125,10 @@
             </view>
             <text>辉光</text>
           </view>
+        </view>
+
+        <view class="save-button {{saving ? 'saving' : ''}}" hover-class="pressed" bindtap="saveCurrentOutput">
+          <text>{{saving ? '保存中' : (processingVideo ? '视频处理中' : '保存当前输出')}}</text>
         </view>
       </view>
     </view>

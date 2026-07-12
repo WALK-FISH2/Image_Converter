@@ -1,0 +1,14 @@
+{
+  "name": "ic84-video-processor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend video processor for IC-84 Raster Console mini program.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
