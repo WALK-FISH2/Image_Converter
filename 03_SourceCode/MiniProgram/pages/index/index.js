@@ -755,7 +755,7 @@ Page({
 
     if (this.data.invert) b = 1 - b;
     if (this.sourceKind === "demo" && value > 14) {
-      b = Math.max(b, 0.24);
+      b = Math.max(b, 0.13);
     }
     return Math.max(0, Math.min(1, b));
   },
@@ -768,13 +768,19 @@ Page({
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   },
 
-  applyGlow(ctx, cellW) {
+  applyGlow(ctx, cellW, mode = "ascii") {
     if (this.data.glow) {
       ctx.shadowColor = TONES[this.data.tone].shadow;
-      ctx.shadowBlur = Math.max(4, cellW * 0.9);
+      const glowScale = mode === "dots" ? 0.5 : mode === "halftone" ? 0.45 : 0.9;
+      const minGlow = mode === "ascii" ? 4 : 2;
+      ctx.shadowBlur = Math.max(minGlow, cellW * glowScale);
     } else {
       ctx.shadowBlur = 0;
     }
+  },
+
+  demoGraphicCell(value) {
+    return this.sourceKind === "demo" && value > 14;
   },
 
   firstVisibleCharIndex(chars) {
@@ -799,7 +805,7 @@ Page({
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = `${Math.max(8, Math.floor(cellH * 0.98))}px "Courier New", monospace`;
-    this.applyGlow(ctx, cellW);
+    this.applyGlow(ctx, cellW, "ascii");
 
     for (let y = 0; y < rows; y += 1) {
       for (let x = 0; x < cols; x += 1) {
@@ -810,7 +816,7 @@ Page({
 
         if (this.sourceKind === "demo" && luminance > 14) {
           charIndex = Math.max(charIndex, visibleCharIndex);
-          b = Math.max(b, 0.24);
+          b = Math.max(b, 0.13);
         }
 
         ctx.fillStyle = this.toneColor(Math.min(1, 0.34 + b * 0.72), 0.9 + b * 0.3);
@@ -821,16 +827,19 @@ Page({
   },
 
   renderDots(ctx, data, rows, cols, cellW, cellH) {
-    this.applyGlow(ctx, cellW);
+    this.applyGlow(ctx, cellW, "dots");
     const maxRadius = Math.min(cellW, cellH) * 0.42;
 
     for (let y = 0; y < rows; y += 1) {
       for (let x = 0; x < cols; x += 1) {
         const index = (y * cols + x) * 4;
-        const b = this.brightness(this.luminance(data, index), x, y);
-        const radius = Math.max(0.45, maxRadius * (0.14 + b));
+        const luminance = this.luminance(data, index);
+        const visibleDemoCell = this.demoGraphicCell(luminance);
+        const b = visibleDemoCell ? Math.max(this.brightness(luminance, x, y), 0.32) : this.brightness(luminance, x, y);
+        const minRadius = visibleDemoCell ? maxRadius * 0.34 : 0.45;
+        const radius = Math.max(minRadius, maxRadius * (0.18 + b * 0.86));
         ctx.beginPath();
-        ctx.fillStyle = this.toneColor(0.15 + b * 0.9, 0.8 + b * 0.35);
+        ctx.fillStyle = this.toneColor(visibleDemoCell ? Math.min(1, 0.38 + b * 0.62) : 0.15 + b * 0.9, 0.84 + b * 0.35);
         ctx.arc(x * cellW + cellW / 2, y * cellH + cellH / 2, radius, 0, Math.PI * 2);
         ctx.fill();
       }
@@ -839,18 +848,20 @@ Page({
   },
 
   renderHalftone(ctx, data, rows, cols, cellW, cellH) {
-    this.applyGlow(ctx, cellW);
+    this.applyGlow(ctx, cellW, "halftone");
 
     for (let y = 0; y < rows; y += 1) {
       for (let x = 0; x < cols; x += 1) {
         const index = (y * cols + x) * 4;
-        const b = this.brightness(this.luminance(data, index), x, y);
-        const w = cellW * (0.22 + b * 0.76);
-        const h = cellH * 0.46;
+        const luminance = this.luminance(data, index);
+        const visibleDemoCell = this.demoGraphicCell(luminance);
+        const b = visibleDemoCell ? Math.max(this.brightness(luminance, x, y), 0.32) : this.brightness(luminance, x, y);
+        const w = cellW * (visibleDemoCell ? 0.42 + b * 0.58 : 0.22 + b * 0.76);
+        const h = cellH * (visibleDemoCell ? 0.54 : 0.46);
         ctx.save();
         ctx.translate(x * cellW + cellW / 2, y * cellH + cellH / 2);
         ctx.rotate(((x + y) % 2 ? -1 : 1) * 0.42);
-        ctx.fillStyle = this.toneColor(0.16 + b * 0.88, 0.82 + b * 0.3);
+        ctx.fillStyle = this.toneColor(visibleDemoCell ? Math.min(1, 0.36 + b * 0.64) : 0.16 + b * 0.88, 0.86 + b * 0.3);
         ctx.fillRect(-w / 2, -h / 2, w, h);
         ctx.restore();
       }
