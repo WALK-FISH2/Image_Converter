@@ -1,0 +1,116 @@
+<view class="page-shell">
+  <view class="terminal-shell">
+    <view class="screw screw-a"></view>
+    <view class="screw screw-b"></view>
+    <view class="screw screw-c"></view>
+    <view class="screw screw-d"></view>
+
+    <view class="monitor-panel">
+      <view class="tv-console">
+        <view class="side-controls">
+          <view class="load-actions">
+            <view class="load-button primary" hover-class="pressed" bindtap="chooseImage">
+              <text>插入图片</text>
+            </view>
+            <view class="load-button" hover-class="pressed" bindtap="chooseVideo">
+              <text>插入视频</text>
+            </view>
+          </view>
+
+          <view class="control-cluster">
+            <text class="cluster-label">渲染方式</text>
+            <view wx:for="{{modes}}" wx:key="id" data-mode="{{item.id}}" class="control-key {{mode === item.id ? 'active' : ''}}" hover-class="pressed" bindtap="setMode">
+              <text>{{item.label}}</text>
+            </view>
+          </view>
+
+          <view class="control-cluster">
+            <text class="cluster-label">字符集</text>
+            <view wx:for="{{charsets}}" wx:key="id" data-charset="{{item.id}}" class="control-key compact {{charset === item.id ? 'active' : ''}}" hover-class="pressed" bindtap="setCharset">
+              <text>{{item.label}}</text>
+            </view>
+          </view>
+
+          <view class="control-cluster">
+            <text class="cluster-label">屏幕色调</text>
+            <view wx:for="{{tones}}" wx:key="id" data-tone="{{item.id}}" class="tone-chip {{tone === item.id ? 'active' : ''}}" hover-class="pressed" bindtap="setTone">
+              <view class="swatch {{item.id}}"></view>
+              <text>{{item.label}}</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="screen-stack">
+          <view class="crt-frame tone-{{tone}} {{glow ? 'glow-on' : ''}}">
+            <view class="glass-bezel">
+              <canvas id="screenCanvas" class="screen-canvas" type="2d"></canvas>
+              <view class="screen-reflection"></view>
+              <view class="scanline-layer"></view>
+              <view class="phosphor-mask"></view>
+              <view class="screen-vignette"></view>
+            </view>
+            <view class="monitor-label">
+              <text>{{modeLabel}}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <view class="scan-panel">
+        <view class="scan-top">
+          <view class="scan-title">
+            <text>扫描参数</text>
+            <text>{{sourceLabel}}</text>
+          </view>
+        </view>
+
+        <view class="slider-block">
+          <view class="control-head">
+            <text>列数</text>
+            <text class="readout">{{cols}}</text>
+          </view>
+          <slider value="{{cols}}" min="44" max="132" step="4" activeColor="#466e78" backgroundColor="#969890" block-color="#ebe9df" block-size="22" bindchanging="onColsChanging" bindchange="onColsChanging" />
+        </view>
+
+        <view class="slider-block">
+          <view class="control-head">
+            <text>缩放</text>
+            <text class="readout">{{scaleLabel}}</text>
+          </view>
+          <slider value="{{scale}}" min="60" max="160" step="5" activeColor="#466e78" backgroundColor="#969890" block-color="#ebe9df" block-size="22" bindchanging="onScaleChanging" bindchange="onScaleChanging" />
+        </view>
+
+        <view class="slider-block">
+          <view class="control-head">
+            <text>对比</text>
+            <text class="readout">{{contrastLabel}}</text>
+          </view>
+          <slider value="{{contrast}}" min="70" max="180" step="2" activeColor="#466e78" backgroundColor="#969890" block-color="#ebe9df" block-size="22" bindchanging="onContrastChanging" bindchange="onContrastChanging" />
+        </view>
+
+        <view class="effect-grid">
+          <view class="metal-toggle" data-key="invert" bindtap="toggleFlag">
+            <view class="toggle-body {{invert ? 'checked' : ''}}">
+              <view class="toggle-knob"></view>
+            </view>
+            <text>反相</text>
+          </view>
+          <view class="metal-toggle" data-key="dither" bindtap="toggleFlag">
+            <view class="toggle-body {{dither ? 'checked' : ''}}">
+              <view class="toggle-knob"></view>
+            </view>
+            <text>抖动</text>
+          </view>
+          <view class="metal-toggle" data-key="glow" bindtap="toggleFlag">
+            <view class="toggle-body {{glow ? 'checked' : ''}}">
+              <view class="toggle-knob"></view>
+            </view>
+            <text>辉光</text>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <canvas id="sampleCanvas" class="sample-canvas" type="2d"></canvas>
+</view>

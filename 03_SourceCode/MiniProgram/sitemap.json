@@ -1,0 +1,9 @@
+{
+  "desc": "sitemap for IC-84 Raster Console",
+  "rules": [
+    {
+      "action": "allow",
+      "page": "*"
+    }
+  ]
+}

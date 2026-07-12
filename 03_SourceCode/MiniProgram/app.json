@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "pages/index/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "IC-84 Raster Console",
+    "navigationBarBackgroundColor": "#e9e7df",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#d8d6cd"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CRT Image Terminal</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="workbench" aria-label="复古未来图像处理终端">
+      <section class="machine" aria-label="桌面视觉终端外壳">
+        <span class="screw screw-a" aria-hidden="true"></span>
+        <span class="screw screw-b" aria-hidden="true"></span>
+        <span class="screw screw-c" aria-hidden="true"></span>
+        <span class="screw screw-d" aria-hidden="true"></span>
+
+        <aside class="control-bay" aria-label="控制面板">
+          <div class="brand-rail">
+            <div>
+              <p class="eyebrow">VISION TERMINAL</p>
+              <h1>IC-84 Raster Console</h1>
+            </div>
+            <div class="status-stack" aria-label="设备状态">
+              <span class="pilot-light online"></span>
+              <span class="pilot-light standby"></span>
+              <span class="pilot-light record"></span>
+            </div>
+          </div>
+
+          <div class="panel-section load-section">
+            <div class="section-label">
+              <span>输入</span>
+              <span class="tiny-code">AUX-01</span>
+            </div>
+            <input id="imageInput" type="file" accept="image/*" />
+            <input id="videoInput" type="file" accept="video/*" />
+            <div class="load-grid">
+              <button class="chunky-button primary" type="button" data-action="load-image">
+                <span class="button-cap">载入图片</span>
+              </button>
+              <button class="chunky-button" type="button" data-action="load-video">
+                <span class="button-cap">载入视频</span>
+              </button>
+            </div>
+            <div class="signal-strip">
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <div class="section-label">
+              <span>扫描参数</span>
+              <span class="tiny-code">SYNC</span>
+            </div>
+
+            <label class="slider-row" for="colsControl">
+              <span class="control-name">屏幕列数</span>
+              <span id="colsValue" class="readout">96</span>
+              <input id="colsControl" type="range" min="48" max="160" value="96" step="4" />
+            </label>
+
+            <label class="slider-row" for="scaleControl">
+              <span class="control-name">图像缩放</span>
+              <span id="scaleValue" class="readout">1.00</span>
+              <input id="scaleControl" type="range" min="60" max="160" value="100" step="5" />
+            </label>
+
+            <label class="slider-row" for="contrastControl">
+              <span class="control-name">对比度</span>
+              <span id="contrastValue" class="readout">1.18</span>
+              <input id="contrastControl" type="range" min="70" max="180" value="118" step="2" />
+            </label>
+          </div>
+
+          <div class="panel-section">
+            <div class="section-label">
+              <span>渲染方式</span>
+              <span class="tiny-code">MODE</span>
+            </div>
+            <div class="switch-bank" role="group" aria-label="渲染方式">
+              <button class="toggle-key active" type="button" data-mode="ascii">字符</button>
+              <button class="toggle-key" type="button" data-mode="dots">点阵</button>
+              <button class="toggle-key" type="button" data-mode="halftone">半调</button>
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <div class="section-label">
+              <span>字符集</span>
+              <span class="tiny-code">FONT ROM</span>
+            </div>
+            <div class="charset-wheel" role="group" aria-label="字符集">
+              <button class="mini-key active" type="button" data-charset="dense">DENSE</button>
+              <button class="mini-key" type="button" data-charset="block">BLOCK</button>
+              <button class="mini-key" type="button" data-charset="line">LINE</button>
+            </div>
+          </div>
+
+          <div class="panel-section matrix-options">
+            <label class="metal-toggle">
+              <input id="invertControl" type="checkbox" />
+              <span class="toggle-body"></span>
+              <span>反相</span>
+            </label>
+            <label class="metal-toggle">
+              <input id="ditherControl" type="checkbox" checked />
+              <span class="toggle-body"></span>
+              <span>抖动</span>
+            </label>
+            <label class="metal-toggle">
+              <input id="glowControl" type="checkbox" checked />
+              <span class="toggle-body"></span>
+              <span>辉光</span>
+            </label>
+          </div>
+
+          <div class="panel-section tint-section">
+            <div class="section-label">
+              <span>屏幕色调</span>
+              <span class="tiny-code">PHOSPHOR</span>
+            </div>
+            <div class="tone-dial" aria-hidden="true">
+              <span class="dial-face">
+                <span id="toneNeedle" class="dial-needle"></span>
+              </span>
+              <span class="dial-shadow"></span>
+            </div>
+            <div class="tone-buttons" role="group" aria-label="屏幕色调">
+              <button class="tone active" type="button" data-tone="green">
+                <span class="swatch green"></span>
+                <span>绿屏</span>
+              </button>
+              <button class="tone" type="button" data-tone="amber">
+                <span class="swatch amber"></span>
+                <span>琥珀</span>
+              </button>
+              <button class="tone" type="button" data-tone="paper">
+                <span class="swatch paper"></span>
+                <span>冷白</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="footer-plate">
+            <span>READY</span>
+            <span id="sourceLabel">SIMULATED SIGNAL</span>
+          </div>
+        </aside>
+
+        <section class="screen-bay" aria-label="CRT 点阵屏幕">
+          <div class="screen-header">
+            <div>
+              <p class="eyebrow">OUTPUT MONITOR</p>
+              <h2>Low Resolution Visualizer</h2>
+            </div>
+            <div class="meter-bank" aria-hidden="true">
+              <span class="meter active"></span>
+              <span class="meter active"></span>
+              <span class="meter"></span>
+              <span class="meter active"></span>
+            </div>
+          </div>
+
+          <div id="crtFrame" class="crt-frame tone-green glow-on">
+            <div class="glass-bezel">
+              <canvas id="screenCanvas" width="960" height="620" aria-label="字符化图像预览"></canvas>
+              <div class="screen-reflection" aria-hidden="true"></div>
+              <div class="scanline-layer" aria-hidden="true"></div>
+              <div class="phosphor-mask" aria-hidden="true"></div>
+              <div class="screen-vignette" aria-hidden="true"></div>
+            </div>
+            <div class="monitor-label">
+              <span>CRT MATRIX DISPLAY</span>
+              <span id="modeLabel">ASCII / 96 COL</span>
+            </div>
+          </div>
+
+          <div class="hardware-lip">
+            <div class="vent-grid" aria-hidden="true">
+              <span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span>
+            </div>
+            <button id="powerButton" class="power-button on" type="button" aria-pressed="true">
+              <span class="power-dot"></span>
+              <span>POWER</span>
+            </button>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <video id="hiddenVideo" playsinline muted loop></video>
+    <script src="script.js"></script>
+  </body>
+</html>

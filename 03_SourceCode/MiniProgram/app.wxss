@@ -1,0 +1,15 @@
+page {
+  min-height: 100vh;
+  color: #1d2529;
+  font-family: "Courier New", Consolas, monospace;
+  background:
+    linear-gradient(135deg, #d7d6ce 0%, #f3f1ea 48%, #c4c2b9 100%);
+}
+
+button {
+  font-family: "Courier New", Consolas, monospace;
+}
+
+button::after {
+  border: 0;
+}
