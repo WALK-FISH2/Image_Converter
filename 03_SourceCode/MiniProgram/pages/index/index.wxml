@@ -52,16 +52,17 @@
                 loop="{{true}}"
                 muted="{{true}}"
                 controls="{{false}}"
-                object-fit="cover"
+                object-fit="contain"
                 show-center-play-btn="{{false}}"
                 show-play-btn="{{false}}"
                 show-fullscreen-btn="{{false}}"
                 show-mute-btn="{{false}}"
                 show-bottom-progress="{{false}}"
                 enable-progress-gesture="{{false}}"
+                bindloadedmetadata="onProcessedVideoLoaded"
                 binderror="onProcessedVideoError"
               ></video>
-              <canvas id="screenCanvas" canvas-id="screenCanvas" class="screen-canvas {{processedVideoSrc ? 'screen-canvas-hidden' : ''}}" type="2d"></canvas>
+              <canvas wx:else id="screenCanvas" canvas-id="screenCanvas" class="screen-canvas" type="2d"></canvas>
               <view class="screen-reflection"></view>
               <view class="scanline-layer"></view>
               <view class="phosphor-mask"></view>

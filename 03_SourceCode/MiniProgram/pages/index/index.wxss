@@ -374,18 +374,14 @@
   background: #031008;
 }
 
-.screen-canvas-hidden {
-  opacity: 0;
-}
-
 .processed-video {
   position: absolute;
-  z-index: 2;
+  z-index: 3;
   left: 0;
   top: 0;
   width: 100%;
   height: 100%;
-  background: #031008;
+  background: #000;
 }
 
 .screen-reflection,

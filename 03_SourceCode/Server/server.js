@@ -18,6 +18,10 @@ const OUTPUT_WIDTH = Number(process.env.OUTPUT_WIDTH || 540);
 const OUTPUT_HEIGHT = Number(process.env.OUTPUT_HEIGHT || 960);
 const DEFAULT_FPS = Number(process.env.PROCESS_FPS || 12);
 const MAX_DURATION_SECONDS = Number(process.env.MAX_DURATION_SECONDS || 0);
+const WINDOWS_DEFAULT_FFMPEG_PATH = "D:\\Program_Files\\ffmpeg\\ffmpeg-master-latest-win64-gpl-shared\\ffmpeg-master-latest-win64-gpl-shared\\bin\\ffmpeg.exe";
+const WINDOWS_DEFAULT_FFPROBE_PATH = "D:\\Program_Files\\ffmpeg\\ffmpeg-master-latest-win64-gpl-shared\\ffmpeg-master-latest-win64-gpl-shared\\bin\\ffprobe.exe";
+const FFMPEG_BIN = process.env.FFMPEG_PATH || (fs.existsSync(WINDOWS_DEFAULT_FFMPEG_PATH) ? WINDOWS_DEFAULT_FFMPEG_PATH : "ffmpeg");
+const FFPROBE_BIN = process.env.FFPROBE_PATH || (fs.existsSync(WINDOWS_DEFAULT_FFPROBE_PATH) ? WINDOWS_DEFAULT_FFPROBE_PATH : "ffprobe");
 
 const CHARSETS = {
   dense: " .:-=+*#%@",
@@ -65,6 +69,8 @@ async function main() {
 
   server.listen(PORT, HOST, () => {
     console.log(`IC-84 video processor listening on http://${HOST}:${PORT}`);
+    console.log(`Using FFmpeg: ${FFMPEG_BIN}`);
+    console.log(`Using FFprobe: ${FFPROBE_BIN}`);
   });
 }
 
@@ -72,7 +78,7 @@ async function route(req, res) {
   const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
 
   if (req.method === "GET" && requestUrl.pathname === "/health") {
-    sendJson(res, 200, { ok: true });
+    sendJson(res, 200, { ok: true, ffmpeg: FFMPEG_BIN, ffprobe: FFPROBE_BIN });
     return;
   }
 
@@ -126,11 +132,15 @@ async function processVideo(inputPath, silentOutputPath, outputPath, params) {
   const scale = clampNumber(params.scale, 0.4, 1.8, 1);
   const contrast = clampNumber(params.contrast, 0.7, 1.8, 1.18);
   const fps = clampInt(params.fps || DEFAULT_FPS, 6, 24, DEFAULT_FPS);
-  const width = OUTPUT_WIDTH;
-  const height = OUTPUT_HEIGHT;
+  const inputInfo = await probeVideo(inputPath);
+  const outputSize = outputSizeForAspect(inputInfo.aspectRatio);
+  const width = outputSize.width;
+  const height = outputSize.height;
   const rows = Math.max(24, Math.round(cols * (height / width) * 0.52));
   const frameSize = cols * rows * 3;
   const outputFrameSize = width * height * 3;
+  const metrics = renderMetrics(width, height, cols, rows);
+  const sampleSize = sampleDrawSize(cols, rows, inputInfo.aspectRatio, metrics.cellH / metrics.cellW, scale);
   const state = {
     ...params,
     cols,
@@ -143,8 +153,9 @@ async function processVideo(inputPath, silentOutputPath, outputPath, params) {
   };
 
   const filters = [
-    `scale=${cols}:${rows}:force_original_aspect_ratio=increase`,
-    `crop=${cols}:${rows}`,
+    `scale=${sampleSize.width}:${sampleSize.height}`,
+    `crop=${Math.min(cols, sampleSize.width)}:${Math.min(rows, sampleSize.height)}:(iw-ow)/2:(ih-oh)/2`,
+    `pad=${cols}:${rows}:(ow-iw)/2:(oh-ih)/2:color=black`,
     `fps=${fps}`
   ].join(",");
 
@@ -183,52 +194,33 @@ async function processVideo(inputPath, silentOutputPath, outputPath, params) {
     silentOutputPath
   ];
 
-  const decoder = spawn("ffmpeg", decodeArgs, { stdio: ["ignore", "pipe", "pipe"] });
-  const encoder = spawn("ffmpeg", encodeArgs, { stdio: ["pipe", "ignore", "pipe"] });
+  const decoder = spawn(FFMPEG_BIN, decodeArgs, { stdio: ["ignore", "pipe", "pipe"] });
+  const encoder = spawn(FFMPEG_BIN, encodeArgs, { stdio: ["pipe", "ignore", "pipe"] });
   let pending = Buffer.alloc(0);
   let frames = 0;
 
   const decoderErr = collectStream(decoder.stderr);
   const encoderErr = collectStream(encoder.stderr);
+  const decoderDone = waitForProcess(decoder, decoderErr);
   const encoderDone = waitForProcess(encoder, encoderErr);
 
-  await new Promise((resolve, reject) => {
-    decoder.stdout.on("data", (chunk) => {
-      decoder.stdout.pause();
-      handleChunk(chunk).then(() => decoder.stdout.resume()).catch(reject);
-    });
-
-    decoder.on("error", reject);
-    encoder.on("error", reject);
-
-    decoder.on("close", async (code) => {
-      try {
-        if (code !== 0) {
-          reject(new Error(`ffmpeg decode failed: ${await decoderErr}`));
-          return;
-        }
-        encoder.stdin.end();
-        await encoderDone;
-        resolve();
-      } catch (error) {
-        reject(error);
+  for await (const chunk of decoder.stdout) {
+    pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
+    while (pending.length >= frameSize) {
+      const sampleFrame = pending.subarray(0, frameSize);
+      pending = pending.subarray(frameSize);
+      const rendered = renderFrame(sampleFrame, state);
+      if (rendered.length !== outputFrameSize) {
+        throw new Error("renderer produced an invalid frame");
       }
-    });
-
-    async function handleChunk(chunk) {
-      pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
-      while (pending.length >= frameSize) {
-        const sampleFrame = pending.subarray(0, frameSize);
-        pending = pending.subarray(frameSize);
-        const rendered = renderFrame(sampleFrame, state);
-        if (rendered.length !== outputFrameSize) {
-          throw new Error("renderer produced an invalid frame");
-        }
-        await writeStream(encoder.stdin, rendered);
-        frames += 1;
-      }
+      await writeStream(encoder.stdin, rendered);
+      frames += 1;
     }
-  });
+  }
+
+  await decoderDone;
+  encoder.stdin.end();
+  await encoderDone;
 
   await muxAudioIfPresent(silentOutputPath, inputPath, outputPath);
 
@@ -239,6 +231,9 @@ async function processVideo(inputPath, silentOutputPath, outputPath, params) {
     width,
     height,
     frames,
+    inputWidth: inputInfo.width,
+    inputHeight: inputInfo.height,
+    aspectRatio: inputInfo.aspectRatio,
     audio: true
   };
 }
@@ -266,20 +261,114 @@ async function muxAudioIfPresent(videoPath, sourcePath, outputPath) {
     "+faststart",
     outputPath
   ];
-  const proc = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+  const proc = spawn(FFMPEG_BIN, args, { stdio: ["ignore", "ignore", "pipe"] });
   await waitForProcess(proc, collectStream(proc.stderr));
+}
+
+async function probeVideo(inputPath) {
+  const args = [
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-select_streams",
+    "v:0",
+    "-show_entries",
+    "stream=width,height,sample_aspect_ratio",
+    "-of",
+    "json",
+    inputPath
+  ];
+  const proc = spawn(FFPROBE_BIN, args, { stdio: ["ignore", "pipe", "pipe"] });
+  const stdout = collectStream(proc.stdout);
+  const stderr = collectStream(proc.stderr);
+  await waitForProcess(proc, stderr);
+
+  const info = JSON.parse(await stdout);
+  const stream = info.streams && info.streams[0];
+  if (!stream || !stream.width || !stream.height) {
+    throw new Error("unable to read video dimensions");
+  }
+
+  const sar = parseRatio(stream.sample_aspect_ratio || "1:1");
+  const aspectRatio = Math.max(0.1, Math.min(10, (Number(stream.width) * sar) / Number(stream.height)));
+  return {
+    width: Number(stream.width),
+    height: Number(stream.height),
+    aspectRatio
+  };
+}
+
+function outputSizeForAspect(aspectRatio) {
+  const maxSide = Math.max(OUTPUT_WIDTH, OUTPUT_HEIGHT);
+  let width;
+  let height;
+
+  if (aspectRatio >= 1) {
+    width = maxSide;
+    height = maxSide / aspectRatio;
+  } else {
+    height = maxSide;
+    width = maxSide * aspectRatio;
+  }
+
+  return {
+    width: evenDimension(width),
+    height: evenDimension(height)
+  };
+}
+
+function evenDimension(value) {
+  return Math.max(120, Math.round(value / 2) * 2);
+}
+
+function parseRatio(value) {
+  const [a, b] = String(value).split(":").map(Number);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b === 0) return 1;
+  return a / b;
+}
+
+function renderMetrics(width, height, cols, rows) {
+  const marginX = Math.round(width * 0.06);
+  const marginY = Math.round(height * 0.08);
+  const contentWidth = width - marginX * 2;
+  const contentHeight = height - marginY * 2;
+  return {
+    marginX,
+    marginY,
+    contentWidth,
+    contentHeight,
+    cellW: contentWidth / cols,
+    cellH: contentHeight / rows
+  };
+}
+
+function sampleDrawSize(cols, rows, sourceAspect, cellStretch, scale) {
+  const displayAspect = sourceAspect * cellStretch;
+  const boxWidth = cols * scale;
+  const boxHeight = rows * scale;
+  let width = boxWidth;
+  let height = width / displayAspect;
+
+  if (height > boxHeight) {
+    height = boxHeight;
+    width = height * displayAspect;
+  }
+
+  return {
+    width: Math.max(2, Math.round(width)),
+    height: Math.max(2, Math.round(height))
+  };
 }
 
 function renderFrame(sample, state) {
   const frame = Buffer.allocUnsafe(state.width * state.height * 3);
   fillTerminalBackground(frame, state);
 
-  const marginX = Math.round(state.width * 0.06);
-  const marginY = Math.round(state.height * 0.08);
-  const contentWidth = state.width - marginX * 2;
-  const contentHeight = state.height - marginY * 2;
-  const cellW = contentWidth / state.cols;
-  const cellH = contentHeight / state.rows;
+  const metrics = renderMetrics(state.width, state.height, state.cols, state.rows);
+  const marginX = metrics.marginX;
+  const marginY = metrics.marginY;
+  const cellW = metrics.cellW;
+  const cellH = metrics.cellH;
   const charset = CHARSETS[state.charset] || CHARSETS.dense;
 
   for (let y = 0; y < state.rows; y += 1) {
@@ -310,23 +399,7 @@ function renderFrame(sample, state) {
 }
 
 function fillTerminalBackground(frame, state) {
-  const tone = TONES[state.tone] || TONES.green;
-  const [bgR, bgG, bgB] = tone.bg;
-  const cx = state.width * 0.5;
-  const cy = state.height * 0.48;
-  const maxD = Math.sqrt(cx * cx + cy * cy);
-
-  for (let y = 0; y < state.height; y += 1) {
-    for (let x = 0; x < state.width; x += 1) {
-      const index = (y * state.width + x) * 3;
-      const dx = x - cx;
-      const dy = y - cy;
-      const glow = Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy) / maxD) * 0.22;
-      frame[index] = clampByte(bgR + tone.fg[0] * glow);
-      frame[index + 1] = clampByte(bgG + tone.fg[1] * glow);
-      frame[index + 2] = clampByte(bgB + tone.fg[2] * glow);
-    }
-  }
+  frame.fill(0);
 }
 
 function drawGlyph(frame, width, height, ch, cx, cy, cellW, cellH, color) {

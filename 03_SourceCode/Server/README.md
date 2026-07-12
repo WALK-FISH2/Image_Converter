@@ -7,7 +7,7 @@ video URL.
 ## Requirements
 
 - Node.js 18+
-- `ffmpeg` available in `PATH`
+- `ffmpeg` and `ffprobe` available in `PATH`
 
 ## Run
 
@@ -20,6 +20,16 @@ Default server URL:
 ```text
 http://127.0.0.1:8787
 ```
+
+On Windows, if `ffmpeg` / `ffprobe` are not in `PATH`, set their paths before starting:
+
+```powershell
+$env:FFMPEG_PATH="D:\Program_Files\ffmpeg\ffmpeg-master-latest-win64-gpl-shared\ffmpeg-master-latest-win64-gpl-shared\bin\ffmpeg.exe"
+$env:FFPROBE_PATH="D:\Program_Files\ffmpeg\ffmpeg-master-latest-win64-gpl-shared\ffmpeg-master-latest-win64-gpl-shared\bin\ffprobe.exe"
+npm start
+```
+
+The bundled server also auto-detects the FFmpeg/FFprobe paths above when they exist.
 
 For real-device mini program testing, replace the mini program API base URL
 with your LAN IP or an HTTPS domain configured in the WeChat mini program

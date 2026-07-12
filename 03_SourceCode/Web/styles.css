@@ -284,6 +284,7 @@ h2 {
 .toggle-key,
 .mini-key,
 .tone,
+.save-button,
 .power-button {
   cursor: pointer;
   border: 1px solid rgba(54, 54, 48, 0.62);
@@ -301,6 +302,7 @@ h2 {
 .toggle-key:active,
 .mini-key:active,
 .tone:active,
+.save-button:active,
 .power-button:active {
   transform: translateY(3px);
   box-shadow:
@@ -771,6 +773,7 @@ input[type="range"]::-moz-range-thumb {
 .hardware-lip {
   min-height: 60px;
   padding: 8px 2px 0;
+  flex-wrap: wrap;
 }
 
 .vent-grid {
@@ -788,6 +791,7 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.28), 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
+.save-button,
 .power-button {
   display: inline-flex;
   align-items: center;
@@ -801,12 +805,32 @@ input[type="range"]::-moz-range-thumb {
   white-space: nowrap;
 }
 
+.save-button {
+  color: #14201c;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(0, 0, 0, 0.04)),
+    linear-gradient(180deg, #dff0df, #98c69e 52%, #63896c);
+}
+
+.save-button.recording {
+  color: #d6f4d9;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(0, 0, 0, 0.12)),
+    linear-gradient(180deg, #38564e, #17231f);
+  text-shadow: 0 0 8px rgba(124, 255, 138, 0.48);
+}
+
+.save-button:disabled {
+  cursor: wait;
+}
+
 .power-button.on {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(0, 0, 0, 0.04)),
     linear-gradient(180deg, #e8f6ea, #9ecda0 50%, #6d916e);
 }
 
+.save-dot,
 .power-dot {
   inline-size: 12px;
   block-size: 12px;
@@ -815,7 +839,13 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: 0 0 10px rgba(121, 255, 130, 0.82), inset 0 1px 2px rgba(255, 255, 255, 0.6);
 }
 
+.save-button.recording .save-dot {
+  background: #ffc35a;
+  box-shadow: 0 0 12px rgba(255, 195, 90, 0.86), inset 0 1px 2px rgba(255, 255, 255, 0.6);
+}
+
 .machine.power-off .power-dot,
+.machine.power-off .save-dot,
 .machine.power-off .pilot-light.online,
 .machine.power-off .signal-strip span:nth-child(-n + 4),
 .machine.power-off .meter.active {
@@ -885,6 +915,11 @@ input[type="range"]::-moz-range-thumb {
   .hardware-lip {
     align-items: center;
     flex-direction: row;
+  }
+
+  .vent-grid {
+    flex-basis: 100%;
+    max-inline-size: none;
   }
 
   .crt-frame {

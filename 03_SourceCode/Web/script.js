@@ -8,6 +8,8 @@ const videoInput = document.querySelector("#videoInput");
 const sourceLabel = document.querySelector("#sourceLabel");
 const modeLabel = document.querySelector("#modeLabel");
 const toneNeedle = document.querySelector("#toneNeedle");
+const saveButton = document.querySelector("#saveButton");
+const saveLabel = saveButton.querySelector(".save-label");
 
 const controls = {
   cols: document.querySelector("#colsControl"),
@@ -32,6 +34,7 @@ const state = {
   source: "demo",
   image: null,
   videoReady: false,
+  saving: false,
   tick: 0,
 };
 
@@ -181,8 +184,22 @@ function buildSampleGrid() {
   sampleCanvas.height = rows;
 
   const scale = Number(controls.scale.value) / 100;
-  const drawW = sampleCanvas.width * scale;
-  const drawH = sampleCanvas.height * scale;
+  let drawW = sampleCanvas.width * scale;
+  let drawH = sampleCanvas.height * scale;
+
+  if (state.source !== "demo") {
+    const sourceRatio = sourceCanvas.width && sourceCanvas.height ? sourceCanvas.width / sourceCanvas.height : 1;
+    const marginX = canvas.width * 0.055;
+    const marginY = canvas.height * 0.06;
+    const cellW = (canvas.width - marginX * 2) / cols;
+    const cellH = (canvas.height - marginY * 2) / rows;
+    const displayRatio = sourceRatio * (cellH / cellW);
+    drawH = drawW / displayRatio;
+    if (drawH > sampleCanvas.height * scale) {
+      drawH = sampleCanvas.height * scale;
+      drawW = drawH * displayRatio;
+    }
+  }
   const drawX = (sampleCanvas.width - drawW) / 2;
   const drawY = (sampleCanvas.height - drawH) / 2;
 
@@ -432,10 +449,241 @@ function loadVideo(file) {
   };
 }
 
+function setSaving(isSaving, label = "SAVE") {
+  state.saving = isSaving;
+  saveButton.disabled = isSaving;
+  saveButton.classList.toggle("recording", isSaving);
+  saveLabel.textContent = label;
+}
+
+function timestamp() {
+  return new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+}
+
+function evenDimension(value) {
+  return Math.max(2, Math.round(value / 2) * 2);
+}
+
+function currentOutputAspect() {
+  if (state.source === "demo") {
+    return canvas.width / canvas.height;
+  }
+
+  if (state.source === "video" && hiddenVideo.videoWidth && hiddenVideo.videoHeight) {
+    return hiddenVideo.videoWidth / hiddenVideo.videoHeight;
+  }
+
+  if (state.source === "image" && state.image) {
+    return state.image.width / state.image.height;
+  }
+
+  if (sourceCanvas.width && sourceCanvas.height) {
+    return sourceCanvas.width / sourceCanvas.height;
+  }
+
+  return canvas.width / canvas.height;
+}
+
+function outputCropForAspect(aspect) {
+  let width = canvas.width;
+  let height = width / aspect;
+
+  if (height > canvas.height) {
+    height = canvas.height;
+    width = height * aspect;
+  }
+
+  return {
+    x: (canvas.width - width) / 2,
+    y: (canvas.height - height) / 2,
+    width,
+    height
+  };
+}
+
+function createExportCanvas() {
+  const aspect = currentOutputAspect();
+  const crop = outputCropForAspect(aspect);
+  const exportCanvas = document.createElement("canvas");
+  exportCanvas.width = evenDimension(crop.width);
+  exportCanvas.height = evenDimension(crop.height);
+  return exportCanvas;
+}
+
+function drawExportFrame(exportCanvas, exportCtx) {
+  const aspect = exportCanvas.width / exportCanvas.height;
+  const crop = outputCropForAspect(aspect);
+  exportCtx.drawImage(
+    canvas,
+    crop.x,
+    crop.y,
+    crop.width,
+    crop.height,
+    0,
+    0,
+    exportCanvas.width,
+    exportCanvas.height,
+  );
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1200);
+}
+
+function saveCanvasImage() {
+  setSaving(true, "SAVING");
+  requestAnimationFrame(() => {
+    const exportCanvas = createExportCanvas();
+    const exportCtx = exportCanvas.getContext("2d");
+    drawExportFrame(exportCanvas, exportCtx);
+    exportCanvas.toBlob((blob) => {
+      if (blob) {
+        downloadBlob(blob, `ic84-raster-${timestamp()}.png`);
+        sourceLabel.textContent = "IMAGE SAVED";
+      } else {
+        sourceLabel.textContent = "SAVE FAILED";
+      }
+      setSaving(false);
+    }, "image/png");
+  });
+}
+
+function pickRecorderMimeType() {
+  const types = [
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm",
+  ];
+
+  return types.find((type) => window.MediaRecorder && MediaRecorder.isTypeSupported(type)) || "";
+}
+
+function waitForSeek(time) {
+  return new Promise((resolve) => {
+    if (!Number.isFinite(hiddenVideo.duration)) {
+      resolve();
+      return;
+    }
+
+    const done = () => {
+      hiddenVideo.removeEventListener("seeked", done);
+      resolve();
+    };
+
+    hiddenVideo.addEventListener("seeked", done, { once: true });
+    hiddenVideo.currentTime = Math.min(Math.max(0, time), Math.max(0, hiddenVideo.duration - 0.05));
+
+    if (Math.abs(hiddenVideo.currentTime - time) < 0.05) {
+      requestAnimationFrame(done);
+    }
+  });
+}
+
+async function saveProcessedVideo() {
+  if (!canvas.captureStream || !window.MediaRecorder) {
+    sourceLabel.textContent = "VIDEO SAVE UNSUPPORTED";
+    saveCanvasImage();
+    return;
+  }
+
+  setSaving(true, "REC");
+  const previousLoop = hiddenVideo.loop;
+  const previousTime = hiddenVideo.currentTime;
+  const wasPaused = hiddenVideo.paused;
+  const duration = Number.isFinite(hiddenVideo.duration) && hiddenVideo.duration > 0 ? hiddenVideo.duration : 8;
+  const mimeType = pickRecorderMimeType();
+  const chunks = [];
+  let copying = false;
+  let stream = null;
+
+  try {
+    hiddenVideo.loop = false;
+    await waitForSeek(0);
+
+    const exportCanvas = createExportCanvas();
+    const exportCtx = exportCanvas.getContext("2d");
+    copying = true;
+    const copyFrame = () => {
+      if (!copying) return;
+      drawExportFrame(exportCanvas, exportCtx);
+      requestAnimationFrame(copyFrame);
+    };
+    copyFrame();
+
+    stream = exportCanvas.captureStream(30);
+    const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    const stopped = new Promise((resolve) => {
+      recorder.addEventListener("stop", resolve, { once: true });
+    });
+
+    recorder.addEventListener("dataavailable", (event) => {
+      if (event.data && event.data.size) chunks.push(event.data);
+    });
+
+    sourceLabel.textContent = "RECORDING OUTPUT";
+    recorder.start(250);
+    await hiddenVideo.play();
+
+    await new Promise((resolve) => {
+      const timer = window.setTimeout(resolve, Math.ceil((duration + 0.35) * 1000));
+      hiddenVideo.addEventListener("ended", () => {
+        window.clearTimeout(timer);
+        resolve();
+      }, { once: true });
+    });
+
+    if (recorder.state !== "inactive") {
+      recorder.stop();
+    }
+    await stopped;
+    copying = false;
+    stream.getTracks().forEach((track) => track.stop());
+
+    const blob = new Blob(chunks, { type: recorder.mimeType || "video/webm" });
+    if (blob.size > 0) {
+      downloadBlob(blob, `ic84-raster-video-${timestamp()}.webm`);
+      sourceLabel.textContent = "VIDEO SAVED";
+    } else {
+      sourceLabel.textContent = "SAVE FAILED";
+    }
+  } catch (error) {
+    sourceLabel.textContent = "SAVE FAILED";
+  } finally {
+    copying = false;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+    hiddenVideo.loop = previousLoop;
+    await waitForSeek(previousTime).catch(() => {});
+    if (!wasPaused || state.videoReady) {
+      hiddenVideo.play().catch(() => {});
+    }
+    setSaving(false);
+  }
+}
+
+function saveCurrentOutput() {
+  if (state.saving) return;
+  if (state.source === "video" && state.videoReady) {
+    saveProcessedVideo();
+    return;
+  }
+
+  saveCanvasImage();
+}
+
 document.querySelector("[data-action='load-image']").addEventListener("click", () => imageInput.click());
 document.querySelector("[data-action='load-video']").addEventListener("click", () => videoInput.click());
 imageInput.addEventListener("change", (event) => loadImage(event.target.files[0]));
 videoInput.addEventListener("change", (event) => loadVideo(event.target.files[0]));
+saveButton.addEventListener("click", saveCurrentOutput);
 
 document.querySelectorAll("[data-mode]").forEach((button) => {
   button.addEventListener("click", () => setMode(button.dataset.mode));

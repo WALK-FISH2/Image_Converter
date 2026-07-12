@@ -26,6 +26,7 @@ const DEMO_SOURCE_ASPECT = 360 / 240;
 const WEB_DEMO_STRETCH = 1.04;
 const DEMO_OPENING_SCALE = 0.7;
 const VIDEO_PROCESSOR_API = "http://127.0.0.1:8787";
+// const VIDEO_PROCESSOR_API = "http://192.168.0.106:8787";
 
 Page({
   data: {
@@ -76,6 +77,10 @@ Page({
   },
 
   onShow() {
+    if (this.data.processedVideoSrc) {
+      this.playProcessedVideo();
+      return;
+    }
     if (this.screenCanvas && !this.renderTimer) {
       this.startRenderLoop();
     }
@@ -89,7 +94,7 @@ Page({
     this.stopRenderLoop();
   },
 
-  initCanvases() {
+  initCanvases(callback) {
     this.createSelectorQuery()
       .select("#screenCanvas")
       .fields({ node: true, size: true })
@@ -98,6 +103,7 @@ Page({
       .exec((res) => {
         if (!res || !res[0] || !res[0].node || !res[1] || !res[1].node) {
           wx.showToast({ title: "Canvas 初始化失败", icon: "none" });
+          if (callback) callback(false);
           return;
         }
 
@@ -107,6 +113,7 @@ Page({
         this.sampleCtx = this.sampleCanvas.getContext("2d");
         this.resizeScreenCanvas(res[0].width, res[0].height);
         this.startRenderLoop();
+        if (callback) callback(true);
       });
   },
 
@@ -142,8 +149,9 @@ Page({
       success: (res) => {
         const file = res.tempFiles && res.tempFiles[0];
         if (file && file.tempFilePath) {
-          this.clearProcessedVideo();
-          this.loadCanvasImage(file.tempFilePath, "IMAGE SIGNAL", "image");
+          this.clearProcessedVideo(() => {
+            this.loadCanvasImage(file.tempFilePath, "IMAGE SIGNAL", "image");
+          });
         }
       }
     });
@@ -159,19 +167,20 @@ Page({
         const file = res.tempFiles && res.tempFiles[0];
         if (!file || !file.tempFilePath) return;
 
-        this.clearProcessedVideo();
-        this.sourceKind = "video-processing";
-        this.setData({
-          processingVideo: true,
-          sourceLabel: "PROCESSING VIDEO"
+        this.clearProcessedVideo(() => {
+          this.sourceKind = "video-processing";
+          this.setData({
+            processingVideo: true,
+            sourceLabel: "PROCESSING VIDEO"
+          });
+          if (file.thumbTempFilePath) {
+            this.loadCanvasImage(file.thumbTempFilePath, "PROCESSING VIDEO", "video-processing");
+          } else {
+            this.sourceImage = null;
+            this.renderScreen();
+          }
+          this.uploadVideoForProcessing(file.tempFilePath);
         });
-        if (file.thumbTempFilePath) {
-          this.loadCanvasImage(file.thumbTempFilePath, "PROCESSING VIDEO", "video-processing");
-        } else {
-          this.sourceImage = null;
-          this.renderScreen();
-        }
-        this.uploadVideoForProcessing(file.tempFilePath);
       }
     });
   },
@@ -191,14 +200,27 @@ Page({
     image.src = path;
   },
 
-  clearProcessedVideo() {
+  clearProcessedVideo(callback) {
+    const hadProcessedVideo = !!this.data.processedVideoSrc;
     this.processedVideoPath = "";
     if (this.data.processedVideoSrc || this.data.processingVideo) {
       this.setData({
         processedVideoSrc: "",
         processingVideo: false
+      }, () => {
+        if (hadProcessedVideo) {
+          this.screenCanvas = null;
+          this.screenCtx = null;
+          this.initCanvases(() => {
+            if (callback) callback();
+          });
+          return;
+        }
+        if (callback) callback();
       });
+      return;
     }
+    if (callback) callback();
   },
 
   uploadVideoForProcessing(filePath) {
@@ -227,18 +249,45 @@ Page({
           return;
         }
 
-        this.processedVideoPath = payload.videoUrl;
-        this.sourceKind = "processed-video";
-        this.setData({
-          processedVideoSrc: payload.videoUrl,
-          processingVideo: false,
-          sourceLabel: "PROCESSED VIDEO"
-        });
-        wx.showToast({ title: "视频处理完成", icon: "success" });
+        this.prepareProcessedVideo(payload.videoUrl);
       },
       fail: () => this.handleVideoProcessError(),
       complete: () => wx.hideLoading()
     });
+  },
+
+  prepareProcessedVideo(videoUrl) {
+    this.setData({
+      processingVideo: true,
+      sourceLabel: "LOADING VIDEO"
+    });
+
+    wx.downloadFile({
+      url: videoUrl,
+      success: (res) => {
+        const playablePath = res.statusCode === 200 && res.tempFilePath ? res.tempFilePath : videoUrl;
+        this.showProcessedVideo(playablePath);
+      },
+      fail: () => {
+        this.showProcessedVideo(videoUrl);
+      }
+    });
+  },
+
+  showProcessedVideo(filePath) {
+    this.processedVideoPath = filePath;
+    this.sourceKind = "processed-video";
+    this.stopRenderLoop();
+    this.screenCanvas = null;
+    this.screenCtx = null;
+    this.setData({
+      processedVideoSrc: filePath,
+      processingVideo: false,
+      sourceLabel: "PROCESSED VIDEO"
+    }, () => {
+      this.playProcessedVideo();
+    });
+    wx.showToast({ title: "视频处理完成", icon: "success" });
   },
 
   videoProcessParams() {
@@ -268,6 +317,20 @@ Page({
 
   onProcessedVideoError() {
     wx.showToast({ title: "处理后视频播放失败", icon: "none" });
+  },
+
+  onProcessedVideoLoaded() {
+    this.playProcessedVideo();
+  },
+
+  playProcessedVideo() {
+    if (!this.data.processedVideoSrc) return;
+    setTimeout(() => {
+      const videoContext = wx.createVideoContext("processedVideo", this);
+      if (videoContext && videoContext.play) {
+        videoContext.play();
+      }
+    }, 60);
   },
 
   onColsChanging(event) {
@@ -516,12 +579,12 @@ Page({
 
   buildSampleData(cols, rows, metrics) {
     if (this.sourceImage) {
-      return this.sampleImageData(cols, rows);
+      return this.sampleImageData(cols, rows, metrics);
     }
     return this.demoSampleData(cols, rows, metrics);
   },
 
-  sampleImageData(cols, rows) {
+  sampleImageData(cols, rows, metrics) {
     const canvas = this.sampleCanvas;
     const ctx = this.sampleCtx;
     canvas.width = cols;
@@ -532,11 +595,13 @@ Page({
 
     const scale = this.data.scale / 100;
     const imageRatio = (this.sourceImage.width || cols) / (this.sourceImage.height || rows);
+    const cellStretch = metrics ? metrics.cellH / metrics.cellW : 1.8;
+    const displayAspect = imageRatio * cellStretch;
     let drawW = cols * scale;
-    let drawH = drawW / imageRatio;
+    let drawH = drawW / displayAspect;
     if (drawH > rows * scale) {
       drawH = rows * scale;
-      drawW = drawH * imageRatio;
+      drawW = drawH * displayAspect;
     }
 
     const x = (cols - drawW) / 2;
@@ -546,7 +611,7 @@ Page({
     try {
       return ctx.getImageData(0, 0, cols, rows).data;
     } catch (error) {
-      return this.demoSampleData(cols, rows);
+      return this.demoSampleData(cols, rows, metrics);
     }
   },
 
@@ -684,6 +749,9 @@ Page({
     }
 
     if (this.data.invert) b = 1 - b;
+    if (this.sourceKind === "demo" && value > 14) {
+      b = Math.max(b, 0.16);
+    }
     return Math.max(0, Math.min(1, b));
   },
 
@@ -704,8 +772,16 @@ Page({
     }
   },
 
+  firstVisibleCharIndex(chars) {
+    for (let i = 0; i < chars.length; i += 1) {
+      if (chars[i] !== " ") return i;
+    }
+    return 0;
+  },
+
   renderAscii(ctx, data, rows, cols, cellW, cellH) {
     const chars = CHARSETS[this.data.charset];
+    const visibleCharIndex = this.firstVisibleCharIndex(chars);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = `${Math.max(7, Math.floor(cellH * 0.96))}px monospace`;
@@ -714,8 +790,15 @@ Page({
     for (let y = 0; y < rows; y += 1) {
       for (let x = 0; x < cols; x += 1) {
         const index = (y * cols + x) * 4;
-        const b = this.brightness(this.luminance(data, index), x, y);
-        const charIndex = Math.min(chars.length - 1, Math.floor(b * (chars.length - 1)));
+        const luminance = this.luminance(data, index);
+        let b = this.brightness(luminance, x, y);
+        let charIndex = Math.min(chars.length - 1, Math.floor(b * (chars.length - 1)));
+
+        if (this.sourceKind === "demo" && luminance > 14) {
+          charIndex = Math.max(charIndex, visibleCharIndex);
+          b = Math.max(b, 0.1);
+        }
+
         ctx.fillStyle = this.toneColor(0.18 + b * 0.86, 0.82 + b * 0.35);
         ctx.fillText(chars[charIndex], x * cellW + cellW / 2, y * cellH + cellH / 2);
       }
