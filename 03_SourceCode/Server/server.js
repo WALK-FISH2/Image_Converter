@@ -24,8 +24,8 @@ const FFMPEG_BIN = process.env.FFMPEG_PATH || (fs.existsSync(WINDOWS_DEFAULT_FFM
 const FFPROBE_BIN = process.env.FFPROBE_PATH || (fs.existsSync(WINDOWS_DEFAULT_FFPROBE_PATH) ? WINDOWS_DEFAULT_FFPROBE_PATH : "ffprobe");
 
 const CHARSETS = {
-  dense: " .:-=+*#%@",
-  block: "  .:+#@",
+  dense: " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$",
+  block: "  ░▒▓█",
   line: " .-:=+*#%@"
 };
 
@@ -403,6 +403,11 @@ function fillTerminalBackground(frame, state) {
 }
 
 function drawGlyph(frame, width, height, ch, cx, cy, cellW, cellH, color) {
+  if (ch === "░" || ch === "▒" || ch === "▓" || ch === "█") {
+    drawBlockGlyph(frame, width, height, ch, cx, cy, cellW, cellH, color);
+    return;
+  }
+
   const glyph = GLYPHS[ch] || GLYPHS["."];
   const scale = Math.max(1, Math.floor(Math.min(cellW / 5, cellH / 7)));
   const glyphW = 5 * scale;
@@ -414,6 +419,27 @@ function drawGlyph(frame, width, height, ch, cx, cy, cellW, cellH, color) {
     for (let gx = 0; gx < 5; gx += 1) {
       if (glyph[gy][gx] !== "1") continue;
       fillRect(frame, width, height, startX + gx * scale, startY + gy * scale, scale, scale, color);
+    }
+  }
+}
+
+function drawBlockGlyph(frame, width, height, ch, cx, cy, cellW, cellH, color) {
+  const blockW = Math.max(1, Math.round(cellW * 0.86));
+  const blockH = Math.max(1, Math.round(cellH * 0.82));
+  const startX = Math.round(cx - blockW / 2);
+  const startY = Math.round(cy - blockH / 2);
+
+  if (ch === "█") {
+    fillRect(frame, width, height, startX, startY, blockW, blockH, color);
+    return;
+  }
+
+  const step = ch === "░" ? 4 : ch === "▒" ? 3 : 2;
+  const dot = ch === "░" ? 1 : Math.max(1, Math.floor(step / 2));
+
+  for (let y = 0; y < blockH; y += step) {
+    for (let x = (y / step) % 2 === 0 ? 0 : Math.floor(step / 2); x < blockW; x += step) {
+      fillRect(frame, width, height, startX + x, startY + y, dot, dot, color);
     }
   }
 }

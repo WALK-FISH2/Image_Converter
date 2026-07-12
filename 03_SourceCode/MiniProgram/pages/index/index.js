@@ -1,8 +1,10 @@
 const CHARSETS = {
   dense: " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$",
-  block: "  ..::ooOO@@",
+  block: "  ░▒▓█",
   line: "  .-:=+*#%@"
 };
+
+const SHOW_CHAR_PROBE = false;
 
 const TONES = {
   green: {
@@ -534,6 +536,9 @@ Page({
       }
       ctx.restore();
       this.drawScreenNoise(ctx, width, height);
+      if (SHOW_CHAR_PROBE) {
+        this.drawCharacterProbe(ctx, width, height);
+      }
     }
 
     ctx.restore();
@@ -750,7 +755,7 @@ Page({
 
     if (this.data.invert) b = 1 - b;
     if (this.sourceKind === "demo" && value > 14) {
-      b = Math.max(b, 0.16);
+      b = Math.max(b, 0.24);
     }
     return Math.max(0, Math.min(1, b));
   },
@@ -766,7 +771,7 @@ Page({
   applyGlow(ctx, cellW) {
     if (this.data.glow) {
       ctx.shadowColor = TONES[this.data.tone].shadow;
-      ctx.shadowBlur = Math.max(2, cellW * 0.75);
+      ctx.shadowBlur = Math.max(4, cellW * 0.9);
     } else {
       ctx.shadowBlur = 0;
     }
@@ -779,12 +784,21 @@ Page({
     return 0;
   },
 
+  stableVisibleCharIndex(chars) {
+    const preferred = [":", ";", "i", "I", "-", "░", "."];
+    for (let i = 0; i < preferred.length; i += 1) {
+      const index = chars.indexOf(preferred[i]);
+      if (index >= 0) return index;
+    }
+    return this.firstVisibleCharIndex(chars);
+  },
+
   renderAscii(ctx, data, rows, cols, cellW, cellH) {
     const chars = CHARSETS[this.data.charset];
-    const visibleCharIndex = this.firstVisibleCharIndex(chars);
+    const visibleCharIndex = this.stableVisibleCharIndex(chars);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.font = `${Math.max(7, Math.floor(cellH * 0.96))}px monospace`;
+    ctx.font = `${Math.max(8, Math.floor(cellH * 0.98))}px "Courier New", monospace`;
     this.applyGlow(ctx, cellW);
 
     for (let y = 0; y < rows; y += 1) {
@@ -796,10 +810,10 @@ Page({
 
         if (this.sourceKind === "demo" && luminance > 14) {
           charIndex = Math.max(charIndex, visibleCharIndex);
-          b = Math.max(b, 0.1);
+          b = Math.max(b, 0.24);
         }
 
-        ctx.fillStyle = this.toneColor(0.18 + b * 0.86, 0.82 + b * 0.35);
+        ctx.fillStyle = this.toneColor(Math.min(1, 0.34 + b * 0.72), 0.9 + b * 0.3);
         ctx.fillText(chars[charIndex], x * cellW + cellW / 2, y * cellH + cellH / 2);
       }
     }
@@ -855,6 +869,21 @@ Page({
       ctx.fillStyle = `rgba(${tone.fg[0]}, ${tone.fg[1]}, ${tone.fg[2]}, ${value / 255})`;
       ctx.fillRect(x, y, this.dpr, this.dpr);
     }
+    ctx.restore();
+  },
+
+  drawCharacterProbe(ctx, width, height) {
+    const tone = TONES[this.data.tone];
+    const fontSize = Math.max(18, Math.round(width * 0.042));
+
+    ctx.save();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.font = `${fontSize}px "Courier New", monospace`;
+    ctx.fillStyle = `rgb(${tone.fg[0]}, ${tone.fg[1]}, ${tone.fg[2]})`;
+    ctx.fillText(".'`^\",:;Il!i><~+_-?][}{1)(|*#MW&8%B@$", width * 0.075, height * 0.07);
     ctx.restore();
   }
 });
