@@ -1,3 +1,23 @@
+import {
+  TONES as tones,
+  calculateGridRows,
+  calculateSamplePlacement,
+  renderRasterCells,
+} from "./raster-renderer.js";
+import {
+  QUALITY_PRESETS,
+  chooseEncoder,
+  defaultFpsOption,
+  estimateOutputBytes,
+  fitEvenDimensions,
+  formatBytes,
+  formatFps,
+  inspectVideoFile,
+  isFpsOptionAvailable,
+  offlineExportSupport,
+  resolveOutputFps,
+} from "./video-export.js";
+
 const canvas = document.querySelector("#screenCanvas");
 const ctx = canvas.getContext("2d", { willReadFrequently: true });
 const machine = document.querySelector(".machine");
@@ -10,6 +30,22 @@ const modeLabel = document.querySelector("#modeLabel");
 const toneNeedle = document.querySelector("#toneNeedle");
 const saveButton = document.querySelector("#saveButton");
 const saveLabel = saveButton.querySelector(".save-label");
+const exportDialog = document.querySelector("#exportDialog");
+const exportSettings = document.querySelector("#exportSettings");
+const exportProgress = document.querySelector("#exportProgress");
+const exportStartButton = document.querySelector("#exportStartButton");
+const exportCancelButton = document.querySelector("#exportCancelButton");
+const sourceFpsLabel = document.querySelector("#sourceFpsLabel");
+const exportResolution = document.querySelector("#exportResolution");
+const exportFpsReadout = document.querySelector("#exportFpsReadout");
+const exportCodec = document.querySelector("#exportCodec");
+const exportSize = document.querySelector("#exportSize");
+const exportNotice = document.querySelector("#exportNotice");
+const exportStage = document.querySelector("#exportStage");
+const exportPercent = document.querySelector("#exportPercent");
+const exportProgressBar = document.querySelector("#exportProgressBar");
+const exportFrameCount = document.querySelector("#exportFrameCount");
+const exportAudioStatus = document.querySelector("#exportAudioStatus");
 
 const controls = {
   cols: document.querySelector("#colsControl"),
@@ -31,39 +67,21 @@ const state = {
   charset: "dense",
   tone: "green",
   power: true,
+  reflection: true,
   source: "demo",
   image: null,
   videoReady: false,
+  videoFile: null,
+  videoObjectUrl: null,
+  videoMetadata: null,
+  videoMetadataPromise: null,
+  videoMetadataError: null,
+  exportWorker: null,
+  exportPlayback: null,
+  exportProbeToken: 0,
+  exportEncoder: null,
   saving: false,
   tick: 0,
-};
-
-const charsets = {
-  dense: " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$",
-  block: "  ░▒▓█",
-  line: "  .-:=+*#%@",
-};
-
-const tones = {
-  green: {
-    bg: [2, 15, 7],
-    fg: [124, 255, 138],
-    shadow: "rgba(124, 255, 138, 0.42)",
-    angle: -42,
-  },
-  amber: {
-    bg: [21, 12, 2],
-    fg: [255, 195, 90],
-    shadow: "rgba(255, 195, 90, 0.38)",
-    // shadow: "rgba(188,190,169)",
-    angle: 0,
-  },
-  paper: {
-    bg: [7, 15, 16],
-    fg: [215, 240, 231],
-    shadow: "rgba(215, 240, 231, 0.3)",
-    angle: 42,
-  },
 };
 
 const sourceCanvas = document.createElement("canvas");
@@ -178,72 +196,32 @@ function drawSource(time) {
 
 function buildSampleGrid() {
   const cols = Number(controls.cols.value);
-  const aspect = canvas.height / canvas.width;
-  const rows = Math.max(24, Math.round(cols * aspect * 0.55));
+  const rows = calculateGridRows(cols, canvas.width, canvas.height);
   sampleCanvas.width = cols;
   sampleCanvas.height = rows;
 
   const scale = Number(controls.scale.value) / 100;
-  let drawW = sampleCanvas.width * scale;
-  let drawH = sampleCanvas.height * scale;
-
-  if (state.source !== "demo") {
-    const sourceRatio = sourceCanvas.width && sourceCanvas.height ? sourceCanvas.width / sourceCanvas.height : 1;
-    const marginX = canvas.width * 0.055;
-    const marginY = canvas.height * 0.06;
-    const cellW = (canvas.width - marginX * 2) / cols;
-    const cellH = (canvas.height - marginY * 2) / rows;
-    const displayRatio = sourceRatio * (cellH / cellW);
-    drawH = drawW / displayRatio;
-    if (drawH > sampleCanvas.height * scale) {
-      drawH = sampleCanvas.height * scale;
-      drawW = drawH * displayRatio;
-    }
-  }
-  const drawX = (sampleCanvas.width - drawW) / 2;
-  const drawY = (sampleCanvas.height - drawH) / 2;
+  const placement = calculateSamplePlacement({
+    cols,
+    rows,
+    targetWidth: canvas.width,
+    targetHeight: canvas.height,
+    sourceWidth: sourceCanvas.width,
+    sourceHeight: sourceCanvas.height,
+    scale,
+    preserveAspect: state.source !== "demo",
+  });
 
   sampleCtx.fillStyle = "#050505";
   sampleCtx.fillRect(0, 0, sampleCanvas.width, sampleCanvas.height);
   sampleCtx.imageSmoothingEnabled = true;
-  sampleCtx.drawImage(sourceCanvas, drawX, drawY, drawW, drawH);
-}
-
-function luminanceAt(data, index) {
-  const r = data[index];
-  const g = data[index + 1];
-  const b = data[index + 2];
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-function processedBrightness(value, x, y) {
-  let brightness = value / 255;
-  const contrast = Number(controls.contrast.value) / 100;
-  brightness = (brightness - 0.5) * contrast + 0.5;
-
-  if (controls.dither.checked) {
-    const matrix = [
-      [0, 8, 2, 10],
-      [12, 4, 14, 6],
-      [3, 11, 1, 9],
-      [15, 7, 13, 5],
-    ];
-    brightness += (matrix[y % 4][x % 4] / 16 - 0.5) * 0.16;
-  }
-
-  if (controls.invert.checked) {
-    brightness = 1 - brightness;
-  }
-
-  return Math.max(0, Math.min(1, brightness));
-}
-
-function toneColor(alpha = 1, boost = 1) {
-  const tone = tones[state.tone];
-  const r = Math.min(255, Math.round(tone.fg[0] * boost));
-  const g = Math.min(255, Math.round(tone.fg[1] * boost));
-  const b = Math.min(255, Math.round(tone.fg[2] * boost));
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  sampleCtx.drawImage(
+    sourceCanvas,
+    placement.x,
+    placement.y,
+    placement.width,
+    placement.height,
+  );
 }
 
 function fillScreenBackground() {
@@ -266,73 +244,18 @@ function fillScreenBackground() {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 
-function renderAscii(data, rows, cols, cellW, cellH) {
-  const chars = charsets[state.charset];
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.font = `${Math.max(8, Math.floor(cellH * 0.98))}px "Courier New", monospace`;
-
-  if (controls.glow.checked) {
-    ctx.shadowColor = tones[state.tone].shadow;
-    ctx.shadowBlur = Math.max(4, cellW * 0.9);
-  } else {
-    ctx.shadowBlur = 0;
-  }
-
-  for (let y = 0; y < rows; y += 1) {
-    for (let x = 0; x < cols; x += 1) {
-      const index = (y * cols + x) * 4;
-      const b = processedBrightness(luminanceAt(data, index), x, y);
-      const charIndex = Math.min(chars.length - 1, Math.floor(b * (chars.length - 1)));
-      ctx.fillStyle = toneColor(0.18 + b * 0.86, 0.82 + b * 0.35);
-      ctx.fillText(chars[charIndex], x * cellW + cellW / 2, y * cellH + cellH / 2);
-    }
-  }
-  ctx.shadowBlur = 0;
-}
-
-function renderDots(data, rows, cols, cellW, cellH) {
-  const maxRadius = Math.min(cellW, cellH) * 0.42;
-  if (controls.glow.checked) {
-    ctx.shadowColor = tones[state.tone].shadow;
-    ctx.shadowBlur = Math.max(2, cellW * 0.5);
-  }
-
-  for (let y = 0; y < rows; y += 1) {
-    for (let x = 0; x < cols; x += 1) {
-      const index = (y * cols + x) * 4;
-      const b = processedBrightness(luminanceAt(data, index), x, y);
-      const radius = Math.max(0.35, maxRadius * (0.14 + b));
-      ctx.beginPath();
-      ctx.fillStyle = toneColor(0.15 + b * 0.9, 0.8 + b * 0.35);
-      ctx.arc(x * cellW + cellW / 2, y * cellH + cellH / 2, radius, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-  ctx.shadowBlur = 0;
-}
-
-function renderHalftone(data, rows, cols, cellW, cellH) {
-  if (controls.glow.checked) {
-    ctx.shadowColor = tones[state.tone].shadow;
-    ctx.shadowBlur = Math.max(2, cellW * 0.45);
-  }
-
-  for (let y = 0; y < rows; y += 1) {
-    for (let x = 0; x < cols; x += 1) {
-      const index = (y * cols + x) * 4;
-      const b = processedBrightness(luminanceAt(data, index), x, y);
-      const w = cellW * (0.22 + b * 0.76);
-      const h = cellH * 0.46;
-      ctx.save();
-      ctx.translate(x * cellW + cellW / 2, y * cellH + cellH / 2);
-      ctx.rotate(((x + y) % 2 ? -1 : 1) * 0.42);
-      ctx.fillStyle = toneColor(0.16 + b * 0.88, 0.82 + b * 0.3);
-      ctx.fillRect(-w / 2, -h / 2, w, h);
-      ctx.restore();
-    }
-  }
-  ctx.shadowBlur = 0;
+function currentRenderSettings() {
+  return {
+    cols: Number(controls.cols.value),
+    scale: Number(controls.scale.value) / 100,
+    contrast: Number(controls.contrast.value) / 100,
+    mode: state.mode,
+    charset: state.charset,
+    tone: state.tone,
+    invert: controls.invert.checked,
+    dither: controls.dither.checked,
+    glow: controls.glow.checked,
+  };
 }
 
 function renderScreen(time = 0) {
@@ -354,17 +277,17 @@ function renderScreen(time = 0) {
     const cellW = (canvas.width - marginX * 2) / cols;
     const cellH = (canvas.height - marginY * 2) / rows;
 
-    ctx.save();
-    ctx.translate(marginX, marginY);
-
-    if (state.mode === "dots") {
-      renderDots(imageData.data, rows, cols, cellW, cellH);
-    } else if (state.mode === "halftone") {
-      renderHalftone(imageData.data, rows, cols, cellW, cellH);
-    } else {
-      renderAscii(imageData.data, rows, cols, cellW, cellH);
-    }
-    ctx.restore();
+    renderRasterCells({
+      ctx,
+      data: imageData.data,
+      rows,
+      cols,
+      x: marginX,
+      y: marginY,
+      width: cellW * cols,
+      height: cellH * rows,
+      settings: currentRenderSettings(),
+    });
 
     drawScreenNoise();
   }
@@ -422,6 +345,17 @@ function setCharset(charset) {
 
 function loadImage(file) {
   if (!file) return;
+  if (state.videoObjectUrl) {
+    URL.revokeObjectURL(state.videoObjectUrl);
+    state.videoObjectUrl = null;
+  }
+  state.videoFile = null;
+  state.videoMetadata = null;
+  state.videoMetadataPromise = null;
+  state.videoMetadataError = null;
+  hiddenVideo.pause();
+  hiddenVideo.removeAttribute("src");
+  hiddenVideo.load();
   const image = new Image();
   image.onload = () => {
     state.image = image;
@@ -436,10 +370,24 @@ function loadImage(file) {
 
 function loadVideo(file) {
   if (!file) return;
+  if (state.videoObjectUrl) URL.revokeObjectURL(state.videoObjectUrl);
   state.source = "video";
   state.videoReady = false;
   state.image = null;
-  hiddenVideo.src = URL.createObjectURL(file);
+  state.videoFile = file;
+  state.videoMetadata = null;
+  state.videoMetadataError = null;
+  state.videoMetadataPromise = inspectVideoFile(file)
+    .then((metadata) => {
+      if (state.videoFile === file) state.videoMetadata = metadata;
+      return metadata;
+    })
+    .catch((error) => {
+      if (state.videoFile === file) state.videoMetadataError = error;
+      return null;
+    });
+  state.videoObjectUrl = URL.createObjectURL(file);
+  hiddenVideo.src = state.videoObjectUrl;
   hiddenVideo.onloadeddata = () => {
     state.videoReady = true;
     sourceLabel.textContent = file.name.toUpperCase().slice(0, 28);
@@ -586,7 +534,7 @@ function waitForSeek(time) {
   });
 }
 
-async function saveProcessedVideo() {
+async function saveProcessedVideoRealtime() {
   if (!canvas.captureStream || !window.MediaRecorder) {
     sourceLabel.textContent = "VIDEO SAVE UNSUPPORTED";
     saveCanvasImage();
@@ -627,7 +575,7 @@ async function saveProcessedVideo() {
       if (event.data && event.data.size) chunks.push(event.data);
     });
 
-    sourceLabel.textContent = "RECORDING OUTPUT";
+    sourceLabel.textContent = "COMPAT RECORDING";
     recorder.start(250);
     await hiddenVideo.play();
 
@@ -662,17 +610,319 @@ async function saveProcessedVideo() {
     }
     hiddenVideo.loop = previousLoop;
     await waitForSeek(previousTime).catch(() => {});
-    if (!wasPaused || state.videoReady) {
+    if (!wasPaused) {
       hiddenVideo.play().catch(() => {});
     }
     setSaving(false);
   }
 }
 
+function selectedRadioValue(name) {
+  return document.querySelector(`input[name="${name}"]:checked`)?.value || "";
+}
+
+function setSelectedRadio(name, value) {
+  const input = document.querySelector(`input[name="${name}"][value="${value}"]`);
+  if (input && !input.disabled) input.checked = true;
+}
+
+function setExportInputsLocked(locked) {
+  document.querySelectorAll("input[name='exportQuality'], input[name='exportFps']").forEach((input) => {
+    if (locked) {
+      input.dataset.wasDisabled = String(input.disabled);
+      input.disabled = true;
+    } else {
+      input.disabled = input.dataset.wasDisabled === "true";
+      delete input.dataset.wasDisabled;
+    }
+  });
+}
+
+async function requireVideoMetadata() {
+  if (state.videoMetadata) return state.videoMetadata;
+  const metadata = await state.videoMetadataPromise;
+  if (metadata) return metadata;
+  throw state.videoMetadataError || new Error("无法读取视频信息。");
+}
+
+function resetExportProgress() {
+  exportSettings.hidden = false;
+  exportProgress.hidden = true;
+  exportStage.textContent = "PREPARING";
+  exportPercent.textContent = "0%";
+  exportProgressBar.style.inlineSize = "0%";
+  exportFrameCount.textContent = "正在建立离线处理管线…";
+  exportAudioStatus.textContent = "";
+  exportCancelButton.disabled = false;
+  exportCancelButton.textContent = "取消";
+}
+
+function selectedExportSpec(metadata) {
+  const qualityName = selectedRadioValue("exportQuality") || "hd";
+  const preset = QUALITY_PRESETS[qualityName] || QUALITY_PRESETS.hd;
+  const dimensions = fitEvenDimensions(metadata.width, metadata.height, qualityName);
+  const fpsMode = selectedRadioValue("exportFps") || defaultFpsOption(metadata.sourceFps);
+  const fps = resolveOutputFps(metadata.sourceFps, fpsMode);
+  return { qualityName, preset, dimensions, fpsMode, fps };
+}
+
+async function updateExportEstimate() {
+  if (!state.videoMetadata || state.saving) return;
+  const metadata = state.videoMetadata;
+  const { preset, dimensions, fps } = selectedExportSpec(metadata);
+  const support = offlineExportSupport();
+  const probeToken = ++state.exportProbeToken;
+
+  exportResolution.textContent = `${dimensions.width} × ${dimensions.height}`;
+  exportFpsReadout.textContent = `${formatFps(fps)} FPS`;
+  exportSize.textContent = formatBytes(estimateOutputBytes(metadata.duration, preset.bitrate, metadata.hasAudio));
+  exportStartButton.disabled = true;
+  state.exportEncoder = null;
+
+  if (!metadata.canDecode) {
+    exportCodec.textContent = "WebM / 实时录制";
+    exportNotice.textContent = "当前浏览器不能用 WebCodecs 解码此视频，将使用实时录制兼容模式。";
+    exportStartButton.textContent = "兼容录制";
+    exportStartButton.disabled = !(canvas.captureStream && window.MediaRecorder);
+    return;
+  }
+
+  if (!support.supported) {
+    exportCodec.textContent = "WebM / 实时录制";
+    exportNotice.textContent = support.reason;
+    exportStartButton.textContent = "兼容录制";
+    exportStartButton.disabled = !(canvas.captureStream && window.MediaRecorder);
+    return;
+  }
+
+  exportCodec.textContent = "检测中…";
+  exportNotice.textContent = "";
+  const encoder = await chooseEncoder({
+    width: dimensions.width,
+    height: dimensions.height,
+    fps,
+    bitrate: preset.bitrate,
+  });
+  if (probeToken !== state.exportProbeToken) return;
+
+  if (encoder) {
+    state.exportEncoder = encoder;
+    const acceleration = encoder.hardwareAcceleration === "prefer-hardware" ? "硬件优先" : "兼容模式";
+    exportCodec.textContent = encoder.codecLabel;
+    exportNotice.textContent = `${acceleration} · 可在后台离线逐帧处理，不按视频播放速度等待。`;
+    exportStartButton.textContent = "开始导出";
+    exportStartButton.disabled = false;
+  } else {
+    exportCodec.textContent = "WebM / 实时录制";
+    exportNotice.textContent = "当前设备没有可用的 H.264 或 VP9 WebCodecs 编码器，只能使用实时录制兼容模式。";
+    exportStartButton.textContent = "兼容录制";
+    exportStartButton.disabled = !(canvas.captureStream && window.MediaRecorder);
+  }
+}
+
+function configureFpsOptions(metadata) {
+  sourceFpsLabel.textContent = `${formatFps(metadata.sourceFps)} FPS`;
+  document.querySelectorAll("input[name='exportFps']").forEach((input) => {
+    if (input.value === "source") {
+      input.disabled = false;
+      return;
+    }
+
+    const available = isFpsOptionAvailable(metadata.sourceFps, Number(input.value));
+    input.disabled = !available;
+    input.closest(".export-choice").title = available
+      ? ""
+      : `源视频约为 ${formatFps(metadata.sourceFps)} FPS，不能生成新的真实画面。`;
+  });
+
+  setSelectedRadio("exportFps", defaultFpsOption(metadata.sourceFps));
+}
+
+async function openVideoExportDialog() {
+  if (!state.videoFile || state.saving) return;
+  resetExportProgress();
+  setSelectedRadio("exportQuality", "hd");
+  exportResolution.textContent = "--";
+  exportFpsReadout.textContent = "--";
+  exportCodec.textContent = "读取中…";
+  exportSize.textContent = "--";
+  exportNotice.textContent = "正在读取视频轨道、尺寸和帧率信息。";
+  exportStartButton.disabled = true;
+  exportStartButton.textContent = "开始导出";
+
+  if (!exportDialog.open) exportDialog.showModal();
+
+  try {
+    const metadata = await requireVideoMetadata();
+    if (!exportDialog.open) return;
+    configureFpsOptions(metadata);
+    await updateExportEstimate();
+  } catch (error) {
+    exportCodec.textContent = "不可用";
+    exportNotice.textContent = error instanceof Error ? error.message : String(error);
+    exportStartButton.disabled = true;
+  }
+}
+
+function showOfflineProgress() {
+  exportSettings.hidden = true;
+  exportProgress.hidden = false;
+  exportStartButton.disabled = true;
+  exportStartButton.textContent = "导出中";
+  exportCancelButton.textContent = "取消导出";
+  setExportInputsLocked(true);
+}
+
+async function restoreVideoPlayback() {
+  const playback = state.exportPlayback;
+  state.exportPlayback = null;
+  if (!playback || !state.videoReady) return;
+
+  hiddenVideo.loop = playback.loop;
+  await waitForSeek(playback.time).catch(() => {});
+  if (!playback.paused) hiddenVideo.play().catch(() => {});
+}
+
+async function resetAfterOfflineExport({ closeDialog = false } = {}) {
+  if (state.exportWorker) {
+    state.exportWorker.terminate();
+    state.exportWorker = null;
+  }
+  await restoreVideoPlayback();
+  setSaving(false);
+  setExportInputsLocked(false);
+  exportStartButton.disabled = false;
+  exportStartButton.textContent = "开始导出";
+  exportCancelButton.disabled = false;
+  exportCancelButton.textContent = "取消";
+  if (closeDialog && exportDialog.open) exportDialog.close();
+}
+
+function updateWorkerProgress(message) {
+  const labels = {
+    RENDERING: "RENDERING FRAMES",
+    FINALIZING: "FINALIZING VIDEO",
+    MUXING: "MUXING OUTPUT",
+  };
+  const percentage = Math.max(0, Math.min(100, Math.round(message.progress * 100)));
+  exportStage.textContent = labels[message.stage] || message.stage || "PROCESSING";
+  exportPercent.textContent = `${percentage}%`;
+  exportProgressBar.style.inlineSize = `${percentage}%`;
+  exportFrameCount.textContent = `已处理 ${message.frame} / ${message.totalFrames} 帧`;
+}
+
+async function handleWorkerMessage(event) {
+  const message = event.data;
+  if (message.type === "progress") {
+    updateWorkerProgress(message);
+    return;
+  }
+
+  if (message.type === "audio") {
+    exportAudioStatus.textContent = message.label;
+    return;
+  }
+
+  if (message.type === "complete") {
+    exportPercent.textContent = "100%";
+    exportProgressBar.style.inlineSize = "100%";
+    exportFrameCount.textContent = `完成 ${message.frameCount} 帧 · ${message.codecLabel}`;
+    exportAudioStatus.textContent = message.audioLabel;
+    const blob = new Blob([message.buffer], { type: message.mimeType });
+    downloadBlob(blob, `ic84-raster-video-${timestamp()}.${message.extension}`);
+    sourceLabel.textContent = "VIDEO SAVED";
+    await resetAfterOfflineExport({ closeDialog: true });
+    return;
+  }
+
+  if (message.type === "canceled") {
+    sourceLabel.textContent = "EXPORT CANCELED";
+    await resetAfterOfflineExport({ closeDialog: true });
+    return;
+  }
+
+  if (message.type === "error") {
+    sourceLabel.textContent = "EXPORT FAILED";
+    await resetAfterOfflineExport();
+    resetExportProgress();
+    exportNotice.textContent = `离线导出失败：${message.message}`;
+    await updateExportEstimate();
+  }
+}
+
+async function startOfflineExport() {
+  const metadata = await requireVideoMetadata();
+  const spec = selectedExportSpec(metadata);
+  if (!state.exportEncoder) {
+    const accepted = window.confirm(
+      "当前浏览器无法使用 WebCodecs 离线编码，将改用实时录制。保存时间约等于视频时长，是否继续？",
+    );
+    if (accepted) {
+      exportDialog.close();
+      await saveProcessedVideoRealtime();
+    }
+    return;
+  }
+
+  state.exportPlayback = {
+    time: hiddenVideo.currentTime,
+    paused: hiddenVideo.paused,
+    loop: hiddenVideo.loop,
+  };
+  hiddenVideo.pause();
+  setSaving(true, "EXPORT");
+  showOfflineProgress();
+  sourceLabel.textContent = "OFFLINE EXPORT";
+
+  try {
+    const worker = new Worker(new URL("./video-export-worker.js", import.meta.url), { type: "module" });
+    state.exportWorker = worker;
+    worker.addEventListener("message", handleWorkerMessage);
+    worker.addEventListener("error", async (event) => {
+      sourceLabel.textContent = "EXPORT FAILED";
+      await resetAfterOfflineExport();
+      resetExportProgress();
+      exportNotice.textContent = `离线导出 Worker 异常：${event.message || "未知错误"}`;
+      await updateExportEstimate();
+    }, { once: true });
+    worker.postMessage({
+      type: "start",
+      file: state.videoFile,
+      options: {
+        width: spec.dimensions.width,
+        height: spec.dimensions.height,
+        fps: spec.fps,
+        fpsMode: spec.fpsMode,
+        bitrate: spec.preset.bitrate,
+        encoder: state.exportEncoder,
+        render: currentRenderSettings(),
+      },
+    });
+  } catch (error) {
+    sourceLabel.textContent = "EXPORT FAILED";
+    await resetAfterOfflineExport();
+    resetExportProgress();
+    exportNotice.textContent = `无法启动离线导出：${error instanceof Error ? error.message : String(error)}`;
+    await updateExportEstimate();
+  }
+}
+
+async function cancelOfflineExport() {
+  if (!state.exportWorker) {
+    exportDialog.close();
+    return;
+  }
+
+  exportCancelButton.disabled = true;
+  exportCancelButton.textContent = "正在取消…";
+  exportStage.textContent = "CANCELING";
+  state.exportWorker.postMessage({ type: "cancel" });
+}
+
 function saveCurrentOutput() {
   if (state.saving) return;
   if (state.source === "video" && state.videoReady) {
-    saveProcessedVideo();
+    openVideoExportDialog();
     return;
   }
 
@@ -684,6 +934,21 @@ document.querySelector("[data-action='load-video']").addEventListener("click", (
 imageInput.addEventListener("change", (event) => loadImage(event.target.files[0]));
 videoInput.addEventListener("change", (event) => loadVideo(event.target.files[0]));
 saveButton.addEventListener("click", saveCurrentOutput);
+exportStartButton.addEventListener("click", () => {
+  if (!state.saving) startOfflineExport().catch((error) => {
+    exportNotice.textContent = error instanceof Error ? error.message : String(error);
+  });
+});
+exportCancelButton.addEventListener("click", cancelOfflineExport);
+exportDialog.addEventListener("cancel", (event) => {
+  if (state.saving) {
+    event.preventDefault();
+    cancelOfflineExport();
+  }
+});
+document.querySelectorAll("input[name='exportQuality'], input[name='exportFps']").forEach((input) => {
+  input.addEventListener("change", updateExportEstimate);
+});
 
 document.querySelectorAll("[data-mode]").forEach((button) => {
   button.addEventListener("click", () => setMode(button.dataset.mode));
@@ -702,6 +967,13 @@ Object.values(controls).forEach((control) => {
     updateLabels();
     crtFrame.classList.toggle("glow-on", controls.glow.checked);
   });
+});
+
+document.querySelector("#reflectionButton").addEventListener("click", (event) => {
+  state.reflection = !state.reflection;
+  crtFrame.classList.toggle("reflection-off", !state.reflection);
+  event.currentTarget.classList.toggle("on", state.reflection);
+  event.currentTarget.setAttribute("aria-pressed", String(state.reflection));
 });
 
 document.querySelector("#powerButton").addEventListener("click", (event) => {

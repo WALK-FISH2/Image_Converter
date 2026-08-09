@@ -185,6 +185,10 @@
               <span></span><span></span><span></span><span></span><span></span>
               <span></span><span></span><span></span><span></span><span></span>
             </div>
+            <button id="reflectionButton" class="reflection-button on" type="button" aria-pressed="true">
+              <span class="reflection-dot"></span>
+              <span>屏幕反光</span>
+            </button>
             <button id="saveButton" class="save-button" type="button">
               <span class="save-dot"></span>
               <span class="save-label">SAVE</span>
@@ -199,6 +203,88 @@
     </main>
 
     <video id="hiddenVideo" playsinline muted loop></video>
-    <script src="script.js"></script>
+
+    <dialog id="exportDialog" class="export-dialog" aria-labelledby="exportTitle">
+      <div class="export-console">
+        <header class="export-header">
+          <div>
+            <p class="eyebrow">OFFLINE VIDEO PROCESSOR</p>
+            <h2 id="exportTitle">视频导出设置</h2>
+          </div>
+          <div class="export-status-lights" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+        </header>
+
+        <div id="exportSettings" class="export-settings">
+          <fieldset class="export-fieldset">
+            <legend>画质</legend>
+            <div class="export-choice-grid quality-choices">
+              <label class="export-choice">
+                <input type="radio" name="exportQuality" value="quick" />
+                <span><strong>快速</strong><small>最高 720p / 6 Mbps</small></span>
+              </label>
+              <label class="export-choice">
+                <input type="radio" name="exportQuality" value="hd" checked />
+                <span><strong>高清</strong><small>最高 1080p / 14 Mbps</small></span>
+              </label>
+              <label class="export-choice">
+                <input type="radio" name="exportQuality" value="fine" />
+                <span><strong>精细</strong><small>原尺寸，最高 1440p / 24 Mbps</small></span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="export-fieldset">
+            <legend>帧率</legend>
+            <div class="export-choice-grid fps-choices">
+              <label class="export-choice compact">
+                <input type="radio" name="exportFps" value="source" />
+                <span><strong>跟随原视频</strong><small id="sourceFpsLabel">-- FPS</small></span>
+              </label>
+              <label class="export-choice compact">
+                <input type="radio" name="exportFps" value="24" />
+                <span><strong>24 FPS</strong></span>
+              </label>
+              <label class="export-choice compact">
+                <input type="radio" name="exportFps" value="30" checked />
+                <span><strong>30 FPS</strong></span>
+              </label>
+              <label class="export-choice compact">
+                <input type="radio" name="exportFps" value="60" />
+                <span><strong>60 FPS</strong></span>
+              </label>
+            </div>
+          </fieldset>
+
+          <dl class="export-readouts" aria-label="预计导出信息">
+            <div><dt>输出尺寸</dt><dd id="exportResolution">--</dd></div>
+            <div><dt>输出帧率</dt><dd id="exportFpsReadout">--</dd></div>
+            <div><dt>编码格式</dt><dd id="exportCodec">检测中</dd></div>
+            <div><dt>预计大小</dt><dd id="exportSize">--</dd></div>
+          </dl>
+          <p id="exportNotice" class="export-notice" role="status"></p>
+        </div>
+
+        <section id="exportProgress" class="export-progress" hidden aria-live="polite">
+          <div class="progress-copy">
+            <span id="exportStage">PREPARING</span>
+            <span id="exportPercent">0%</span>
+          </div>
+          <div class="progress-track" aria-hidden="true">
+            <span id="exportProgressBar"></span>
+          </div>
+          <p id="exportFrameCount">正在建立离线处理管线…</p>
+          <p id="exportAudioStatus" class="export-audio-status"></p>
+        </section>
+
+        <footer class="export-actions">
+          <button id="exportCancelButton" class="export-button secondary" type="button">取消</button>
+          <button id="exportStartButton" class="export-button primary" type="button">开始导出</button>
+        </footer>
+      </div>
+    </dialog>
+
+    <script type="module" src="/script.js"></script>
   </body>
 </html>

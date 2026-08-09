@@ -1,0 +1,21 @@
+# Local environment
+.env
+.env.local
+
+# Dependencies and logs
+node_modules/
+Web/dist/
+*.log
+npm-debug.log*
+
+# Generated server media
+Server/storage/uploads/
+Server/storage/outputs/
+Server/storage/temp/
+
+# WeChat developer tool local settings
+MiniProgram/project.private.config.json
+
+# Operating system files
+.DS_Store
+Thumbs.db
